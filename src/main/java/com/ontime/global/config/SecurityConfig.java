@@ -1,4 +1,4 @@
-package com.ontime.ontime_backend.global.config;
+package com.ontime.global.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -17,7 +17,9 @@ public class SecurityConfig {
         .csrf(csrf -> csrf.disable())
         .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .authorizeHttpRequests(auth -> auth
-            .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**", "/api/v1/health").permitAll()
+            .requestMatchers(
+                "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**", "/api/v1/health")
+            .permitAll()
             .anyRequest().authenticated());
     return http.build();
   }

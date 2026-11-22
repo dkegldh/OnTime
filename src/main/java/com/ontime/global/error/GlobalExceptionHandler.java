@@ -1,4 +1,4 @@
-package com.ontime.ontime_backend.global.error;
+package com.ontime.global.error;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;

@@ -1,4 +1,4 @@
-package com.ontime.ontime_backend.global.common;
+package com.ontime.global.common;
 
 import java.util.Map;
 import org.springframework.web.bind.annotation.GetMapping;

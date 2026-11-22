@@ -1,4 +1,4 @@
-package com.ontime.ontime_backend.global.error;
+package com.ontime.global.error;
 
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
