@@ -1,4 +1,4 @@
-package com.ontime.ontime_backend.global.config;
+package com.ontime.global.config;
 
 import java.time.Clock;
 import org.springframework.context.annotation.Bean;

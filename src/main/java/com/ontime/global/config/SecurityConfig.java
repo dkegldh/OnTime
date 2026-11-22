@@ -1,4 +1,4 @@
-package com.ontime.ontime_backend.global.config;
+package com.ontime.global.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

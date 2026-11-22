@@ -1,4 +1,4 @@
-package com.ontime.ontime_backend;
+package com.ontime;
 
 import org.springframework.boot.SpringApplication;
 
