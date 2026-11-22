@@ -20,6 +20,9 @@ public class SecurityConfig {
             .requestMatchers(
                 "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**", "/api/v1/health")
             .permitAll()
+            // Phase 4(JWT) 전까지 API 인증은 @LoginUser(X-User-Id)가 담당한다.
+            .requestMatchers("/api/**")
+            .permitAll()
             .anyRequest().authenticated());
     return http.build();
   }
