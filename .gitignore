@@ -39,3 +39,5 @@ out/
 .env
 *.env
 application-secret.yml
+### macOS ###
+.DS_Store
