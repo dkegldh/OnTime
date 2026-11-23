@@ -11,7 +11,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # PR은 새 커밋이 오면 이전 실행을 취소하고, develop/main push는 커밋마다 끝까지 검증합니다.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
@@ -39,7 +40,7 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      # test → jacocoTestReport → jacocoTestCoverageVerification
+      # test 후 jacocoTestReport(test의 finalizedBy)와 jacocoTestCoverageVerification(check의 의존)이 실행됩니다.
       # 서비스 클래스 중 하나라도 라인 커버리지가 80% 미만이면 실패합니다.
       # Testcontainers는 러너에 기본 설치된 Docker를 사용합니다.
       - name: Test with coverage check
