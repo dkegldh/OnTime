@@ -109,7 +109,7 @@ fi
 # ---------- git push ----------
 if has_git push; then
   # 마지막 'git push' 뒤부터 다음 명령 구분자 전까지를 push 인자로 본다
-  push_args=$(sed -E 's/.*git[[:space:]]+push//; s/(&&|\|\||;|\|).*//' <<<"$scan")
+  push_args=$(sed -E 's/.*git[[:space:]]+push//; s/(&&|\|\||;|\||\)|`).*//' <<<"$scan")
 
   if grep -Eq '(^|[[:space:]])(--force(-with-lease)?(=[^[:space:]]*)?|-[a-zA-Z]*f[a-zA-Z]*)([[:space:]]|$)|(^|[[:space:]])\+[^[:space:]]' <<<"$push_args"; then
     block "force push는 하지 않습니다. 히스토리를 고쳐야 하면 새 커밋으로 해결하세요."
@@ -138,7 +138,7 @@ fi
 env_re='(^|/)\.env(\.[a-zA-Z]+)?$'
 env_ok_re='(^|/)\.env\.(example|sample|template)$'
 if has_git add; then
-  add_args=$(sed -E 's/.*git[[:space:]]+add//; s/(&&|\|\||;|\|).*//' <<<"$scan")
+  add_args=$(sed -E 's/.*git[[:space:]]+add//; s/(&&|\|\||;|\||\)|`).*//' <<<"$scan")
   for a in $add_args; do
     if grep -Eq "$env_re" <<<"$a" && ! grep -Eq "$env_ok_re" <<<"$a"; then
       block ".env 파일은 커밋하지 않습니다. ($a)"
