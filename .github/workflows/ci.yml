@@ -10,9 +10,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
-  # PR은 새 커밋이 오면 이전 실행을 취소하고, develop/main push는 커밋마다 끝까지 검증합니다.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # PR은 브랜치 단위로 묶어 새 커밋이 오면 이전 실행을 취소합니다.
+  # develop/main push는 커밋(sha)마다 그룹을 나눠, 대기 중인 실행도 밀려나지 않고 커밋마다 검증합니다.
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: true
 
 jobs:
   test:
