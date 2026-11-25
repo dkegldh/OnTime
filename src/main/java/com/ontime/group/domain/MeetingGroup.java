@@ -12,6 +12,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -57,6 +58,12 @@ public class MeetingGroup extends BaseTimeEntity {
   @Embedded private FineRule fineRule;
 
   private Instant deletedAt;
+
+  /**
+   * 낙관적 락. 이름 수정과 삭제가 동시에 커밋되면, 먼저 읽은 상태로 전체 컬럼을 UPDATE 하는 쪽이 {@code deleted_at} 을
+   * 되돌리는 lost update가 생기므로 나중에 커밋하는 쪽을 실패시킨다.
+   */
+  @Version private long version;
 
   private MeetingGroup(
       String name,

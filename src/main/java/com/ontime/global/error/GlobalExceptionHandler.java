@@ -1,6 +1,7 @@
 package com.ontime.global.error;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -16,6 +17,13 @@ public class GlobalExceptionHandler {
     ErrorCode code = e.getErrorCode();
     return ResponseEntity.status(code.getStatus())
         .body(new ErrorResponse(code.name(), code.getMessage()));
+  }
+
+  /** 낙관적 락 충돌(@Version). 먼저 커밋된 변경을 지키고 나중 요청은 다시 시도하게 한다. */
+  @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+  public ResponseEntity<ErrorResponse> handleOptimisticLock(
+      ObjectOptimisticLockingFailureException e) {
+    return handleBusiness(new BusinessException(ErrorCode.CONCURRENT_UPDATE));
   }
 
   @ExceptionHandler(MethodArgumentNotValidException.class)

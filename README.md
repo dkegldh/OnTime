@@ -57,6 +57,7 @@ erDiagram
         BIGINT fine_amount "원, TEXT면 0"
         VARCHAR penalty_text "TEXT일 때만"
         TIMESTAMPTZ deleted_at "soft delete"
+        BIGINT version "낙관적 락"
         TIMESTAMPTZ created_at
         TIMESTAMPTZ updated_at
     }
@@ -80,11 +81,13 @@ erDiagram
 | `absent_after_minutes` | 1~180분, `grace_minutes` 보다 커야 합니다. |
 | `arrival_radius_m` | 50~1000m |
 | `fine_type`, `fine_amount`, `penalty_text` | `MONEY` 면 `fine_amount` 1~1,000,000원 필수, `penalty_text` 는 저장하지 않습니다. `TEXT` 면 `penalty_text` 필수(최대 100자), `fine_amount = 0` 입니다. |
+| `version` | `@Version` 낙관적 락. 이름 수정과 삭제가 동시에 커밋되면 나중 쪽이 `409 CONCURRENT_UPDATE` 로 실패합니다. (없으면 수정 쪽 UPDATE가 `deleted_at` 을 null로 되돌릴 수 있음) |
 | `deleted_at` | 삭제는 soft delete 입니다. 이후 벌금 원장(append-only)이 그룹을 참조하므로 행을 지우지 않습니다. 삭제된 그룹은 모든 조회에서 없는 그룹으로 취급합니다. |
 
 ### group_members
 
 - `(group_id, user_id)` 유니크
+- `(user_id, group_id)` 인덱스: 내 그룹 목록 조회용
 - 그룹을 만든 사용자가 `OWNER` 로 등록됩니다. 초대 코드로 참여한 사용자는 `MEMBER` 입니다. (초대 코드는 다음 이슈)
 
 ## API 명세
@@ -121,6 +124,8 @@ erDiagram
   "penaltyText": null
 }
 ```
+
+`fineType` 이 `TEXT` 면 `fineAmount` 는 무시합니다(0이나 null을 보내도 됨). `MONEY` 면 `penaltyText` 를 무시합니다.
 
 #### 상세 응답 (생성, 수정 응답도 같음)
 
@@ -182,5 +187,6 @@ erDiagram
 | `MEETING_TIME_IN_PAST` | 400 | 생성: 약속 일시가 서버 시각 이전(같은 시각 포함) |
 | `GROUP_NOT_FOUND` | 404 | 상세/수정/삭제: 없거나 삭제된 그룹 |
 | `NOT_GROUP_MEMBER` | 403 | 상세/수정/삭제: 그룹 멤버가 아님 |
+| `CONCURRENT_UPDATE` | 409 | 수정/삭제: 같은 그룹을 다른 요청이 먼저 바꿈. 다시 시도 |
 
 > 수정/삭제를 방장만 할 수 있게 하는 검사(`OWNER_ONLY`)는 로드맵 "권한" 이슈에서 추가합니다.
