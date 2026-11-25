@@ -125,7 +125,7 @@ erDiagram
 }
 ```
 
-`fineType` 이 `TEXT` 면 `fineAmount` 는 무시합니다(0이나 null을 보내도 됨). `MONEY` 면 `penaltyText` 를 무시합니다.
+`fineType` 이 `TEXT` 면 `fineAmount` 는 무시합니다(0이나 null을 보내도 됨). `MONEY` 면 `penaltyText` 를 무시합니다(길이도 검사하지 않음).
 
 #### 상세 응답 (생성, 수정 응답도 같음)
 
