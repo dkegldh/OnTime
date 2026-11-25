@@ -30,4 +30,13 @@ public class UserService {
   public boolean exists(Long userId) {
     return userRepository.existsById(userId);
   }
+
+  /**
+   * 연관관계를 걸 때 쓰는 사용자 참조(프록시)를 돌려준다. 조회 쿼리를 보내지 않는다.
+   *
+   * <p>존재 여부는 호출하는 쪽이 이미 확인했다고 가정한다. (예: {@code @LoginUser} 가 검증한 id)
+   */
+  public User getReference(Long userId) {
+    return userRepository.getReferenceById(userId);
+  }
 }
