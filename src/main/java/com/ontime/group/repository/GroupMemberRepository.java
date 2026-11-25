@@ -1,6 +1,7 @@
 package com.ontime.group.repository;
 
 import com.ontime.group.domain.GroupMember;
+import com.ontime.group.dto.GroupMemberSummary;
 import com.ontime.group.dto.MeetingGroupSummary;
 import java.util.List;
 import java.util.Optional;
@@ -32,4 +33,17 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, Long> 
       """)
   List<MeetingGroupSummary> findPageByUserId(
       @Param("userId") Long userId, @Param("cursor") Long cursor, Limit limit);
+
+  /** 그룹 멤버를 참여 순(멤버 id 오름차순)으로 {@code cursor} 다음부터 조회한다. */
+  @Query(
+      """
+      select new com.ontime.group.dto.GroupMemberSummary(
+          m.id, u.id, u.nickname, u.profileImageUrl, m.role, m.createdAt)
+      from GroupMember m join m.user u
+      where m.group.id = :groupId
+        and (:cursor is null or m.id > :cursor)
+      order by m.id asc
+      """)
+  List<GroupMemberSummary> findPageByGroupId(
+      @Param("groupId") Long groupId, @Param("cursor") Long cursor, Limit limit);
 }
