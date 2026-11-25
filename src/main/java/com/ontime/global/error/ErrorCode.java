@@ -16,7 +16,9 @@ public enum ErrorCode {
   INVALID_STATE(HttpStatus.CONFLICT, "지금은 할 수 없는 동작이에요."),
   MEETING_NOT_OPEN(HttpStatus.CONFLICT, "아직 출발/도착을 누를 수 없는 시간이에요."),
   EXCUSE_DEADLINE_PASSED(HttpStatus.CONFLICT, "약속 24시간 전까지만 빠질 수 있어요."),
-  ALREADY_MEMBER(HttpStatus.CONFLICT, "이미 참여한 그룹이에요.");
+  ALREADY_MEMBER(HttpStatus.CONFLICT, "이미 참여한 그룹이에요."),
+  GROUP_NOT_FOUND(HttpStatus.NOT_FOUND, "그룹을 찾을 수 없어요."),
+  MEETING_TIME_IN_PAST(HttpStatus.BAD_REQUEST, "약속 시간은 지금 이후로 정해 주세요.");
 
   private final HttpStatus status;
   private final String message;
