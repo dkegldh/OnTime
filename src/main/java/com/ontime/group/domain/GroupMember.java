@@ -34,6 +34,9 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class GroupMember extends BaseTimeEntity {
 
+  /** (group_id, user_id) 유니크 제약 이름. 이 제약 위반은 "이미 참여한 그룹"이다. */
+  public static final String UNIQUE_GROUP_USER = "uk_group_members_group_user";
+
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
   private Long id;
@@ -55,9 +58,6 @@ public class GroupMember extends BaseTimeEntity {
     this.user = user;
     this.role = role;
   }
-
-  /** (group_id, user_id) 유니크 제약 이름. 이 제약 위반은 "이미 참여한 그룹"이다. */
-  public static final String UNIQUE_GROUP_USER = "uk_group_members_group_user";
 
   public static GroupMember owner(MeetingGroup group, User user) {
     return new GroupMember(group, user, GroupRole.OWNER);

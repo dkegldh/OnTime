@@ -54,22 +54,18 @@ public class MeetingGroupService {
   }
 
   public MeetingGroupResponse get(Long userId, Long groupId) {
-    return MeetingGroupResponse.of(getMembership(userId, groupId));
+    return MeetingGroupResponse.of(groupMembershipReader.getMembership(userId, groupId));
   }
 
   @Transactional
   public MeetingGroupResponse update(Long userId, Long groupId, UpdateMeetingGroupRequest request) {
-    GroupMember membership = getMembership(userId, groupId);
+    GroupMember membership = groupMembershipReader.getMembership(userId, groupId);
     membership.getGroup().rename(request.name());
     return MeetingGroupResponse.of(membership);
   }
 
   @Transactional
   public void delete(Long userId, Long groupId) {
-    getMembership(userId, groupId).getGroup().delete(Instant.now(clock));
-  }
-
-  private GroupMember getMembership(Long userId, Long groupId) {
-    return groupMembershipReader.getMembership(userId, groupId);
+    groupMembershipReader.getMembership(userId, groupId).getGroup().delete(Instant.now(clock));
   }
 }

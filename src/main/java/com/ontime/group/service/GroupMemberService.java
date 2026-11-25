@@ -44,16 +44,26 @@ public class GroupMemberService {
     MeetingGroup group = groupMembershipReader.getMembership(userId, groupId).getGroup();
     String code = newUniqueCode();
     Instant now = Instant.now(clock);
-    InviteCode inviteCode =
-        inviteCodeRepository
-            .findByGroupId(groupId)
-            .map(
-                existing -> {
-                  existing.reissue(code, now);
-                  return existing;
-                })
-            .orElseGet(() -> inviteCodeRepository.save(InviteCode.issue(group, code, now)));
-    return InviteCodeResponse.from(inviteCode);
+    try {
+      InviteCode inviteCode =
+          inviteCodeRepository
+              .findByGroupId(groupId)
+              .map(
+                  existing -> {
+                    existing.reissue(code, now);
+                    return existing;
+                  })
+              .orElseGet(() -> inviteCodeRepository.save(InviteCode.issue(group, code, now)));
+      // 제약 위반을 여기서 잡으려고 커밋 전에 flush 한다. (재발급의 버전 충돌은 GlobalExceptionHandler 가 409로 바꾼다)
+      inviteCodeRepository.flush();
+      return InviteCodeResponse.from(inviteCode);
+    } catch (DataIntegrityViolationException e) {
+      // 같은 그룹 첫 발급이 동시에 왔거나, 다른 그룹과 동시에 같은 코드를 만든 경우. 다시 시도하면 된다.
+      if (violates(e, InviteCode.UNIQUE_GROUP) || violates(e, InviteCode.UNIQUE_CODE)) {
+        throw new BusinessException(ErrorCode.CONCURRENT_UPDATE);
+      }
+      throw e;
+    }
   }
 
   /**
@@ -80,7 +90,7 @@ public class GroupMemberService {
     try {
       groupMemberRepository.saveAndFlush(member);
     } catch (DataIntegrityViolationException e) {
-      if (isDuplicateMembership(e)) {
+      if (violates(e, GroupMember.UNIQUE_GROUP_USER)) {
         throw new BusinessException(ErrorCode.ALREADY_MEMBER);
       }
       throw e;
@@ -111,13 +121,16 @@ public class GroupMemberService {
         return code;
       }
     }
+    // 31^8(약 8,500억) 가지라 5번 연속으로 겹치는 일은 사실상 없다. 일어났다면 난수 생성이 고장 난 것이므로
+    // 사용자 에러(BusinessException)가 아닌 서버 오류로 남긴다.
     throw new IllegalStateException("초대 코드를 " + MAX_CODE_ATTEMPTS + "번 만들었지만 모두 겹쳤습니다.");
   }
 
-  private static boolean isDuplicateMembership(DataIntegrityViolationException e) {
+  /** 이 예외가 {@code constraintName} 제약 위반 때문인지 본다. */
+  private static boolean violates(DataIntegrityViolationException e, String constraintName) {
     for (Throwable t = e; t != null; t = t.getCause()) {
       if (t instanceof ConstraintViolationException cve
-          && GroupMember.UNIQUE_GROUP_USER.equalsIgnoreCase(cve.getConstraintName())) {
+          && constraintName.equalsIgnoreCase(cve.getConstraintName())) {
         return true;
       }
     }

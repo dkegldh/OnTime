@@ -28,11 +28,17 @@ import lombok.NoArgsConstructor;
 @Table(
     name = "invite_codes",
     uniqueConstraints = {
-      @UniqueConstraint(name = "uk_invite_codes_group", columnNames = "group_id"),
-      @UniqueConstraint(name = "uk_invite_codes_code", columnNames = "code")
+      @UniqueConstraint(name = InviteCode.UNIQUE_GROUP, columnNames = "group_id"),
+      @UniqueConstraint(name = InviteCode.UNIQUE_CODE, columnNames = "code")
     })
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class InviteCode extends BaseTimeEntity {
+
+  /** 그룹당 코드 하나. 같은 그룹의 첫 발급이 동시에 오면 이 제약이 두 번째 행을 막는다. */
+  public static final String UNIQUE_GROUP = "uk_invite_codes_group";
+
+  /** 코드 유니크. 다른 그룹과 동시에 같은 코드를 만들면 이 제약이 막는다. */
+  public static final String UNIQUE_CODE = "uk_invite_codes_code";
 
   public static final int CODE_LENGTH = 8;
   public static final Duration VALIDITY = Duration.ofDays(7);
