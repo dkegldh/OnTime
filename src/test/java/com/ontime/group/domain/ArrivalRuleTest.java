@@ -30,4 +30,13 @@ class ArrivalRuleTest {
         .extracting("errorCode")
         .isEqualTo(ErrorCode.VALIDATION_FAILED);
   }
+
+  @Test
+  @DisplayName("결석 판정 시간이 유예시간보다 짧으면 VALIDATION_FAILED로 거절된다")
+  void of_absentAfterShorterThanGrace_rejected() {
+    assertThatThrownBy(() -> ArrivalRule.of(10, 9, 200))
+        .isInstanceOf(BusinessException.class)
+        .extracting("errorCode")
+        .isEqualTo(ErrorCode.VALIDATION_FAILED);
+  }
 }

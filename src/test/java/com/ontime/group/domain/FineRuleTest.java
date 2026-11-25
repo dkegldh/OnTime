@@ -51,4 +51,13 @@ class FineRuleTest {
         .extracting("errorCode")
         .isEqualTo(ErrorCode.VALIDATION_FAILED);
   }
+
+  @Test
+  @DisplayName("벌칙 문구가 null이면 VALIDATION_FAILED로 거절된다")
+  void text_null_rejected() {
+    assertThatThrownBy(() -> FineRule.text(null))
+        .isInstanceOf(BusinessException.class)
+        .extracting("errorCode")
+        .isEqualTo(ErrorCode.VALIDATION_FAILED);
+  }
 }

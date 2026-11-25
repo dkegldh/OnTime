@@ -75,7 +75,7 @@ class MeetingGroupTest {
 
   @Test
   @DisplayName("삭제하면 삭제 시각이 기록된다")
-  void delete_recordsDeletedAt() {
+  void delete_withServerTime_recordsDeletedAt() {
     // given
     MeetingGroup group = createAt(MEETING_AT.minusSeconds(3600));
     Instant now = Instant.parse("2026-11-30T12:00:00Z");
@@ -89,7 +89,7 @@ class MeetingGroupTest {
 
   @Test
   @DisplayName("이름을 바꾸면 이름만 바뀌고 규칙은 그대로다")
-  void rename_changesNameOnly() {
+  void rename_newName_changesNameOnly() {
     // given
     MeetingGroup group = createAt(MEETING_AT.minusSeconds(3600));
 
