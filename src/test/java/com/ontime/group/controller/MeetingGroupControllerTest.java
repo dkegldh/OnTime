@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
+import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -276,6 +277,8 @@ class MeetingGroupControllerTest {
         Arguments.of("유예 60분, 결석 61분", new Object[] {"graceMinutes", 60, "absentAfterMinutes", 61}),
         Arguments.of("유예 10분, 결석 11분", new Object[] {"graceMinutes", 10, "absentAfterMinutes", 11}),
         Arguments.of("결석 180분", new Object[] {"absentAfterMinutes", 180}),
+        Arguments.of("위도 90, 경도 180", new Object[] {"latitude", 90.0, "longitude", 180.0}),
+        Arguments.of("위도 -90, 경도 -180", new Object[] {"latitude", -90.0, "longitude", -180.0}),
         Arguments.of(
             "벌칙 문구 100자", new Object[] {"fineType", "TEXT", "penaltyText", "가".repeat(100)}));
   }
@@ -292,36 +295,48 @@ class MeetingGroupControllerTest {
     assertThat(meetingGroupRepository.count()).isEqualTo(1);
   }
 
+  /** (케이스 이름, 걸려야 하는 필드, 덮어쓸 값). 필드가 null이면 본문 해석 단계에서 거절되는 경우다. */
   static Stream<Arguments> rejectedValues() {
     return Stream.of(
-        Arguments.of("이름 31자", new Object[] {"name", "가".repeat(31)}),
-        Arguments.of("이름 공백", new Object[] {"name", "  "}),
-        Arguments.of("장소 이름 51자", new Object[] {"placeName", "가".repeat(51)}),
-        Arguments.of("위도 90.1", new Object[] {"latitude", 90.1}),
-        Arguments.of("경도 -180.1", new Object[] {"longitude", -180.1}),
-        Arguments.of("벌금 0원", new Object[] {"fineAmount", 0}),
-        Arguments.of("벌금 1,000,001원", new Object[] {"fineAmount", 1_000_001}),
-        Arguments.of("MONEY인데 벌금 없음", new Object[] {"fineAmount", null}),
-        Arguments.of("반경 49m", new Object[] {"arrivalRadiusM", 49}),
-        Arguments.of("반경 1001m", new Object[] {"arrivalRadiusM", 1001}),
-        Arguments.of("유예 -1분", new Object[] {"graceMinutes", -1}),
-        Arguments.of("유예 61분", new Object[] {"graceMinutes", 61, "absentAfterMinutes", 120}),
-        Arguments.of("결석 181분", new Object[] {"absentAfterMinutes", 181}),
-        Arguments.of("결석 = 유예", new Object[] {"graceMinutes", 10, "absentAfterMinutes", 10}),
-        Arguments.of("결석 < 유예", new Object[] {"graceMinutes", 10, "absentAfterMinutes", 9}),
-        Arguments.of("TEXT인데 벌칙 문구 없음", new Object[] {"fineType", "TEXT"}),
-        Arguments.of("TEXT인데 벌칙 문구 공백", new Object[] {"fineType", "TEXT", "penaltyText", "  "}),
+        Arguments.of("이름 31자", "name", new Object[] {"name", "가".repeat(31)}),
+        Arguments.of("이름 공백", "name", new Object[] {"name", "  "}),
+        Arguments.of("장소 이름 51자", "placeName", new Object[] {"placeName", "가".repeat(51)}),
+        Arguments.of("위도 90.1", "latitude", new Object[] {"latitude", 90.1}),
+        Arguments.of("위도 -90.1", "latitude", new Object[] {"latitude", -90.1}),
+        Arguments.of("경도 180.1", "longitude", new Object[] {"longitude", 180.1}),
+        Arguments.of("경도 -180.1", "longitude", new Object[] {"longitude", -180.1}),
+        Arguments.of("벌금 0원", FINE_RULE, new Object[] {"fineAmount", 0}),
+        Arguments.of("벌금 1,000,001원", FINE_RULE, new Object[] {"fineAmount", 1_000_001}),
+        Arguments.of("MONEY인데 벌금 없음", FINE_RULE, new Object[] {"fineAmount", null}),
+        Arguments.of("반경 49m", "arrivalRadiusM", new Object[] {"arrivalRadiusM", 49}),
+        Arguments.of("반경 1001m", "arrivalRadiusM", new Object[] {"arrivalRadiusM", 1001}),
+        Arguments.of("유예 -1분", "graceMinutes", new Object[] {"graceMinutes", -1}),
         Arguments.of(
-            "벌칙 문구 101자", new Object[] {"fineType", "TEXT", "penaltyText", "가".repeat(101)}),
-        Arguments.of("정의되지 않은 벌금 유형", new Object[] {"fineType", "COFFEE"}),
-        Arguments.of("약속 날짜 없음", new Object[] {"startDate", null}));
+            "유예 61분", "graceMinutes", new Object[] {"graceMinutes", 61, "absentAfterMinutes", 120}),
+        Arguments.of("결석 181분", "absentAfterMinutes", new Object[] {"absentAfterMinutes", 181}),
+        Arguments.of(
+            "결석 = 유예", ABSENT_RULE, new Object[] {"graceMinutes", 10, "absentAfterMinutes", 10}),
+        Arguments.of(
+            "결석 < 유예", ABSENT_RULE, new Object[] {"graceMinutes", 10, "absentAfterMinutes", 9}),
+        Arguments.of("TEXT인데 벌칙 문구 없음", FINE_RULE, new Object[] {"fineType", "TEXT"}),
+        Arguments.of(
+            "TEXT인데 벌칙 문구 공백", FINE_RULE, new Object[] {"fineType", "TEXT", "penaltyText", "  "}),
+        Arguments.of(
+            "벌칙 문구 101자",
+            FINE_RULE,
+            new Object[] {"fineType", "TEXT", "penaltyText", "가".repeat(101)}),
+        Arguments.of("약속 날짜 없음", "startDate", new Object[] {"startDate", null}),
+        Arguments.of("정의되지 않은 벌금 유형", null, new Object[] {"fineType", "COFFEE"}));
   }
+
+  private static final String FINE_RULE = "fineRuleComplete";
+  private static final String ABSENT_RULE = "absentAfterLongerThanGrace";
 
   @ParameterizedTest(name = "{0}")
   @MethodSource("rejectedValues")
-  @DisplayName("허용 범위 밖이거나 빠진 값이면 VALIDATION_FAILED로 거절되고 저장되지 않는다")
-  void create_invalidValue_rejectedAndNothingSaved(String caseName, Object[] overrides)
-      throws Exception {
+  @DisplayName("허용 범위 밖이거나 빠진 값이면 그 필드로 VALIDATION_FAILED가 나고 저장되지 않는다")
+  void create_invalidValue_rejectedAndNothingSaved(
+      String caseName, String expectedField, Object[] overrides) throws Exception {
     // when
     ResultActions result = create(ownerId, requestWith(overrides));
 
@@ -329,8 +344,30 @@ class MeetingGroupControllerTest {
     result
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    if (expectedField != null) {
+      result.andExpect(jsonPath("$.message").value(startsWith(expectedField + ": ")));
+    }
     assertThat(meetingGroupRepository.count()).isZero();
     assertThat(groupMemberRepository.count()).isZero();
+  }
+
+  @Test
+  @DisplayName("MONEY 그룹은 벌칙 문구가 101자여도 무시하고 만들어진다")
+  void create_moneyWithLongPenaltyText_createdWithoutText() throws Exception {
+    // given
+    Map<String, Object> body = requestWith("penaltyText", "가".repeat(101));
+
+    // when
+    String json =
+        create(ownerId, body)
+            .andExpect(status().isCreated())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+    // then
+    Long groupId = objectMapper.readTree(json).get("id").asLong();
+    assertThat(findGroup(groupId).getFineRule().getPenaltyText()).isNull();
   }
 
   // ---- 목록 ----
