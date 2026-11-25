@@ -3,7 +3,9 @@ package com.ontime.group.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -156,7 +158,7 @@ class GroupMemberServiceTest {
     // when & then
     assertThatThrownBy(() -> service.issueInviteCode(USER_ID, GROUP_ID))
         .isInstanceOf(IllegalStateException.class);
-    verify(inviteCodeGenerator, times(GroupMemberService.MAX_CODE_ATTEMPTS)).generate();
+    verify(inviteCodeGenerator, times(5)).generate();
     verify(inviteCodeRepository, never()).save(any());
   }
 
@@ -179,5 +181,73 @@ class GroupMemberServiceTest {
     assertThat(existing.getExpiresAt()).isEqualTo(Instant.parse("2026-12-02T03:00:00Z"));
     assertThat(response.code()).isEqualTo("NEWC6789");
     verify(inviteCodeRepository, never()).save(any());
+  }
+
+  @Test
+  @DisplayName("4번 겹치고 5번째에 겹치지 않으면 5번째 코드로 발급한다")
+  void issueInviteCode_fifthAttemptUnique_issues() {
+    // given
+    givenMember(group());
+    given(inviteCodeGenerator.generate())
+        .willReturn("AAAA2222", "AAAA2223", "AAAA2224", "AAAA2225", "BBBB3333");
+    given(inviteCodeRepository.existsByCode(startsWith("AAAA")))
+        .willReturn(true);
+    given(inviteCodeRepository.existsByCode("BBBB3333")).willReturn(false);
+    given(inviteCodeRepository.findByGroupId(GROUP_ID)).willReturn(Optional.empty());
+    given(inviteCodeRepository.save(any(InviteCode.class))).willAnswer(i -> i.getArgument(0));
+
+    // when
+    InviteCodeResponse response = service.issueInviteCode(USER_ID, GROUP_ID);
+
+    // then
+    assertThat(response.code()).isEqualTo("BBBB3333");
+  }
+
+  private void givenFirstIssue() {
+    givenMember(group());
+    given(inviteCodeGenerator.generate()).willReturn("CCCC4444");
+    given(inviteCodeRepository.existsByCode("CCCC4444")).willReturn(false);
+    given(inviteCodeRepository.findByGroupId(GROUP_ID)).willReturn(Optional.empty());
+    given(inviteCodeRepository.save(any(InviteCode.class))).willAnswer(i -> i.getArgument(0));
+  }
+
+  @Test
+  @DisplayName("같은 그룹 첫 발급이 동시에 와서 그룹당 1개 제약을 어기면 CONCURRENT_UPDATE로 응답한다")
+  void issueInviteCode_groupUniqueViolation_rejectedAsConcurrentUpdate() {
+    // given
+    givenFirstIssue();
+    willThrow(violationOf(InviteCode.UNIQUE_GROUP)).given(inviteCodeRepository).flush();
+
+    // when & then
+    assertThatThrownBy(() -> service.issueInviteCode(USER_ID, GROUP_ID))
+        .isInstanceOf(BusinessException.class)
+        .extracting("errorCode")
+        .isEqualTo(ErrorCode.CONCURRENT_UPDATE);
+  }
+
+  @Test
+  @DisplayName("다른 그룹과 동시에 같은 코드를 만들어 코드 유니크 제약을 어기면 CONCURRENT_UPDATE로 응답한다")
+  void issueInviteCode_codeUniqueViolation_rejectedAsConcurrentUpdate() {
+    // given
+    givenFirstIssue();
+    willThrow(violationOf(InviteCode.UNIQUE_CODE)).given(inviteCodeRepository).flush();
+
+    // when & then
+    assertThatThrownBy(() -> service.issueInviteCode(USER_ID, GROUP_ID))
+        .isInstanceOf(BusinessException.class)
+        .extracting("errorCode")
+        .isEqualTo(ErrorCode.CONCURRENT_UPDATE);
+  }
+
+  @Test
+  @DisplayName("발급 중 다른 제약 위반은 CONCURRENT_UPDATE로 바꾸지 않고 그대로 던진다")
+  void issueInviteCode_otherConstraintViolation_rethrown() {
+    // given
+    givenFirstIssue();
+    DataIntegrityViolationException other = violationOf("fk_invite_codes_group");
+    willThrow(other).given(inviteCodeRepository).flush();
+
+    // when & then
+    assertThatThrownBy(() -> service.issueInviteCode(USER_ID, GROUP_ID)).isSameAs(other);
   }
 }

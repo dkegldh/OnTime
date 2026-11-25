@@ -18,6 +18,7 @@ import com.ontime.group.repository.GroupMemberRepository;
 import com.ontime.group.repository.InviteCodeRepository;
 import com.ontime.group.repository.MeetingGroupRepository;
 import com.ontime.support.MutableClock;
+import com.ontime.support.MutableClockConfig;
 import com.ontime.user.domain.User;
 import com.ontime.user.repository.UserRepository;
 import java.time.Instant;
@@ -28,11 +29,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
@@ -42,24 +40,15 @@ import tools.jackson.databind.ObjectMapper;
 /** 초대 코드, 참여, 나가기, 멤버 목록 API 통합 테스트. 실제 PostgreSQL, 시각은 옮길 수 있는 Clock 빈. */
 @SpringBootTest
 @AutoConfigureMockMvc
-@Import({TestcontainersConfiguration.class, GroupMemberControllerTest.ClockConfig.class})
+@Import({TestcontainersConfiguration.class, MutableClockConfig.class})
 class GroupMemberControllerTest {
 
   private static final String BASE = "/api/v1/meeting-groups";
   private static final String USER_HEADER = LoginUserArgumentResolver.USER_ID_HEADER;
 
   // 서버 시각 2026-11-25 12:00 KST. 이때 발급한 코드는 2026-12-02T03:00:00Z 에 만료된다.
-  private static final Instant NOW = Instant.parse("2026-11-25T03:00:00Z");
+  private static final Instant NOW = MutableClockConfig.NOW;
   private static final Instant EXPIRES_AT = Instant.parse("2026-12-02T03:00:00Z");
-
-  @TestConfiguration(proxyBeanMethods = false)
-  static class ClockConfig {
-    @Bean
-    @Primary
-    MutableClock mutableClock() {
-      return new MutableClock(NOW);
-    }
-  }
 
   @Autowired private MockMvc mockMvc;
   @Autowired private ObjectMapper objectMapper;
@@ -227,6 +216,22 @@ class GroupMemberControllerTest {
     result
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value("GROUP_NOT_FOUND"));
+    assertThat(inviteCodeRepository.count()).isZero();
+  }
+
+  @Test
+  @DisplayName("방장이 아닌 일반 멤버도 초대 코드를 발급할 수 있고, 그 코드로 다른 사용자가 참여한다")
+  void issue_plainMember_returnsUsableCode() throws Exception {
+    // given: 손님이 방장 코드로 참여한 일반 멤버
+    join(guestId, issueCode(ownerId, groupId)).andExpect(status().isCreated());
+    Long thirdId = userRepository.save(User.create("셋째")).getId();
+
+    // when
+    String memberIssuedCode = issueCode(guestId, groupId);
+
+    // then
+    join(thirdId, memberIssuedCode).andExpect(status().isCreated());
+    assertThat(isMember(thirdId, groupId)).isTrue();
   }
 
   // ---- 참여 ----
@@ -473,6 +478,42 @@ class GroupMemberControllerTest {
         .andExpect(jsonPath("$.items[0].userId").value(thirdId))
         .andExpect(jsonPath("$.hasNext").value(false))
         .andExpect(jsonPath("$.nextCursor").value(nullValue()));
+  }
+
+  @Test
+  @DisplayName("멤버 목록에는 다른 그룹의 멤버가 섞이지 않는다")
+  void listMembers_otherGroupHasMembers_returnsOnlyThisGroup() throws Exception {
+    // given: 다른 그룹(방장: 남, 멤버: 손님)
+    Long otherOwnerId = userRepository.save(User.create("남")).getId();
+    Long otherGroupId = createGroup(otherOwnerId);
+    join(guestId, issueCode(otherOwnerId, otherGroupId)).andExpect(status().isCreated());
+
+    // when: 이 그룹(방장만 있음)의 멤버 목록
+    ResultActions result = listMembers(ownerId, groupId, "");
+
+    // then
+    result
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items", hasSize(1)))
+        .andExpect(jsonPath("$.items[0].userId").value(ownerId))
+        .andExpect(jsonPath("$.hasNext").value(false));
+  }
+
+  @Test
+  @DisplayName("멤버 목록 size가 최소값 1이면 1명만 주고, 최대값 50이면 모두 준다")
+  void listMembers_sizeAtBounds_accepted() throws Exception {
+    // given: 방장 + 손님
+    join(guestId, issueCode(ownerId, groupId)).andExpect(status().isCreated());
+
+    // when & then
+    listMembers(ownerId, groupId, "?size=1")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items", hasSize(1)))
+        .andExpect(jsonPath("$.hasNext").value(true));
+    listMembers(ownerId, groupId, "?size=50")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items", hasSize(2)))
+        .andExpect(jsonPath("$.hasNext").value(false));
   }
 
   @Test
