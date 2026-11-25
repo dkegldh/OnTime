@@ -3,7 +3,6 @@ package com.ontime.group.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.hasSize;
-import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -506,7 +505,7 @@ class MeetingGroupControllerTest {
         .andExpect(jsonPath("$.fineAmount").value(3000))
         .andExpect(jsonPath("$.penaltyText").value(nullValue()))
         .andExpect(jsonPath("$.myRole").value("OWNER"))
-        .andExpect(jsonPath("$.createdAt").value(notNullValue()));
+        .andExpect(jsonPath("$.createdAt").value("2026-11-25T03:00:00Z"));
   }
 
   @Test
