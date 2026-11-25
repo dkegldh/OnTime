@@ -505,7 +505,7 @@ class MeetingGroupControllerTest {
         .andExpect(jsonPath("$.fineAmount").value(3000))
         .andExpect(jsonPath("$.penaltyText").value(nullValue()))
         .andExpect(jsonPath("$.myRole").value("OWNER"))
-        .andExpect(jsonPath("$.createdAt").value("2026-11-25T03:00:00Z"));
+        .andExpect(jsonPath("$.createdAt").value(NOW.toString()));
   }
 
   @Test
