@@ -9,14 +9,12 @@ import com.ontime.group.domain.MeetingGroup;
 import com.ontime.group.domain.Place;
 import com.ontime.group.repository.GroupMemberRepository;
 import com.ontime.group.repository.MeetingGroupRepository;
+import com.ontime.support.MutableClock;
 import com.ontime.user.domain.User;
 import com.ontime.user.repository.UserRepository;
-import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -40,36 +38,12 @@ class JpaAuditingClockTest {
   private static final Instant T1 = Instant.parse("2020-01-01T00:00:00Z");
   private static final Instant T2 = Instant.parse("2020-01-01T01:30:00Z");
 
-  /** 테스트 안에서 시각을 옮길 수 있는 Clock. */
-  static final class MutableClock extends Clock {
-    private volatile Instant now = T1;
-
-    void setInstant(Instant now) {
-      this.now = now;
-    }
-
-    @Override
-    public Instant instant() {
-      return now;
-    }
-
-    @Override
-    public ZoneId getZone() {
-      return ZoneOffset.UTC;
-    }
-
-    @Override
-    public Clock withZone(ZoneId zone) {
-      throw new UnsupportedOperationException();
-    }
-  }
-
   @TestConfiguration(proxyBeanMethods = false)
   static class MutableClockConfig {
     @Bean
     @Primary
     MutableClock mutableClock() {
-      return new MutableClock();
+      return new MutableClock(T1);
     }
   }
 
