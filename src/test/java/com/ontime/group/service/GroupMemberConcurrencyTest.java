@@ -210,4 +210,27 @@ class GroupMemberConcurrencyTest {
         .isInstanceOf(DataIntegrityViolationException.class);
     assertThat(inviteCodeRepository.count()).isEqualTo(1);
   }
+
+  @Test
+  @DisplayName("같은 버전을 읽은 두 재발급 중 나중에 저장한 쪽은 낙관적 락으로 실패하고, DB에는 먼저 저장한 코드가 남는다")
+  void reissue_withStaleVersion_failsAndKeepsFirstCode() {
+    // given: 두 요청이 같은 버전의 코드 행을 읽어 둔 상황
+    Long inviteCodeId =
+        inviteCodeRepository
+            .save(InviteCode.issue(group, "ORIG2345", MutableClockConfig.NOW))
+            .getId();
+    InviteCode first = inviteCodeRepository.findById(inviteCodeId).orElseThrow();
+    InviteCode second = inviteCodeRepository.findById(inviteCodeId).orElseThrow();
+
+    // when: 먼저 저장한 쪽은 성공
+    first.reissue("FRST2345", MutableClockConfig.NOW);
+    inviteCodeRepository.save(first);
+
+    // then: 나중 쪽은 실패하고, 먼저 받은 코드가 유효하게 남는다
+    second.reissue("SCND2345", MutableClockConfig.NOW);
+    assertThatThrownBy(() -> inviteCodeRepository.save(second))
+        .isInstanceOf(ObjectOptimisticLockingFailureException.class);
+    assertThat(inviteCodeRepository.findById(inviteCodeId).orElseThrow().getCode())
+        .isEqualTo("FRST2345");
+  }
 }

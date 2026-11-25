@@ -250,4 +250,23 @@ class GroupMemberServiceTest {
     // when & then
     assertThatThrownBy(() -> service.issueInviteCode(USER_ID, GROUP_ID)).isSameAs(other);
   }
+
+  @Test
+  @DisplayName("재발급 중 다른 그룹과 같은 코드가 되어 코드 유니크 제약을 어기면 CONCURRENT_UPDATE로 응답한다")
+  void issueInviteCode_reissueCodeUniqueViolation_rejectedAsConcurrentUpdate() {
+    // given: 이미 코드가 있는 그룹
+    MeetingGroup group = group();
+    givenMember(group);
+    InviteCode existing = InviteCode.issue(group, "OLDC2345", NOW);
+    given(inviteCodeGenerator.generate()).willReturn("DDDD5555");
+    given(inviteCodeRepository.existsByCode("DDDD5555")).willReturn(false);
+    given(inviteCodeRepository.findByGroupId(GROUP_ID)).willReturn(Optional.of(existing));
+    willThrow(violationOf(InviteCode.UNIQUE_CODE)).given(inviteCodeRepository).flush();
+
+    // when & then
+    assertThatThrownBy(() -> service.issueInviteCode(USER_ID, GROUP_ID))
+        .isInstanceOf(BusinessException.class)
+        .extracting("errorCode")
+        .isEqualTo(ErrorCode.CONCURRENT_UPDATE);
+  }
 }
