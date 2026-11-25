@@ -10,6 +10,7 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -25,7 +26,9 @@ import lombok.NoArgsConstructor;
     uniqueConstraints =
         @UniqueConstraint(
             name = "uk_group_members_group_user",
-            columnNames = {"group_id", "user_id"}))
+            columnNames = {"group_id", "user_id"}),
+    // 내 그룹 목록(user_id 조건, group_id 내림차순)용. 유니크 인덱스는 group_id가 앞이라 쓰이지 않는다.
+    indexes = @Index(name = "idx_group_members_user_group", columnList = "user_id, group_id"))
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class GroupMember extends BaseTimeEntity {
 

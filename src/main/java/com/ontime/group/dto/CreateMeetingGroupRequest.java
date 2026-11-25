@@ -29,8 +29,11 @@ public record CreateMeetingGroupRequest(
     @NotNull @Min(1) @Max(180) Integer absentAfterMinutes,
     @NotNull @Min(50) @Max(1000) Integer arrivalRadiusM,
     @NotNull FineType fineType,
-    @Min(1) @Max(1_000_000) Long fineAmount,
+    Long fineAmount,
     @Size(max = FineRule.PENALTY_TEXT_MAX_LENGTH) String penaltyText) {
+
+  public static final long MIN_FINE_AMOUNT = 1L;
+  public static final long MAX_FINE_AMOUNT = 1_000_000L;
 
   @Schema(hidden = true)
   @AssertTrue(message = "결석 판정 시간은 유예시간보다 길어야 해요.")
@@ -42,13 +45,15 @@ public record CreateMeetingGroupRequest(
   }
 
   @Schema(hidden = true)
-  @AssertTrue(message = "벌금이면 금액을, 벌칙이면 벌칙 내용을 입력해 주세요.")
+  @AssertTrue(message = "벌금은 1원~1,000,000원, 벌칙은 내용을 입력해 주세요.")
   public boolean isFineRuleComplete() {
     if (fineType == null) {
       return true;
     }
+    // TEXT면 금액은 버리므로 범위를 검사하지 않는다. (프론트가 0이나 null을 보내도 된다)
     return switch (fineType) {
-      case MONEY -> fineAmount != null;
+      case MONEY ->
+          fineAmount != null && fineAmount >= MIN_FINE_AMOUNT && fineAmount <= MAX_FINE_AMOUNT;
       case TEXT -> penaltyText != null && !penaltyText.isBlank();
     };
   }
