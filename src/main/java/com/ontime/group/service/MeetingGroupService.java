@@ -1,8 +1,6 @@
 package com.ontime.group.service;
 
 import com.ontime.global.common.CursorResponse;
-import com.ontime.global.error.BusinessException;
-import com.ontime.global.error.ErrorCode;
 import com.ontime.group.domain.GroupMember;
 import com.ontime.group.domain.MeetingGroup;
 import com.ontime.group.dto.CreateMeetingGroupRequest;
@@ -27,6 +25,7 @@ public class MeetingGroupService {
 
   private final MeetingGroupRepository meetingGroupRepository;
   private final GroupMemberRepository groupMemberRepository;
+  private final GroupMembershipReader groupMembershipReader;
   private final UserService userService;
   private final Clock clock;
 
@@ -70,17 +69,7 @@ public class MeetingGroupService {
     getMembership(userId, groupId).getGroup().delete(Instant.now(clock));
   }
 
-  /**
-   * 삭제되지 않은 그룹에서 사용자의 멤버 정보를 찾는다.
-   *
-   * <p>그룹이 없거나 삭제됐으면 {@code GROUP_NOT_FOUND}, 멤버가 아니면 {@code NOT_GROUP_MEMBER}.
-   */
   private GroupMember getMembership(Long userId, Long groupId) {
-    meetingGroupRepository
-        .findByIdAndDeletedAtIsNull(groupId)
-        .orElseThrow(() -> new BusinessException(ErrorCode.GROUP_NOT_FOUND));
-    return groupMemberRepository
-        .findByGroupIdAndUserId(groupId, userId)
-        .orElseThrow(() -> new BusinessException(ErrorCode.NOT_GROUP_MEMBER));
+    return groupMembershipReader.getMembership(userId, groupId);
   }
 }

@@ -63,6 +63,7 @@ class MeetingGroupServiceTest {
         new MeetingGroupService(
             meetingGroupRepository,
             groupMemberRepository,
+            new GroupMembershipReader(meetingGroupRepository, groupMemberRepository),
             userService,
             Clock.fixed(NOW, ZoneOffset.UTC));
   }
