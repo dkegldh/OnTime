@@ -14,6 +14,7 @@ import com.ontime.meeting.dto.MeetingSummary;
 import com.ontime.meeting.repository.AttendanceRepository;
 import com.ontime.meeting.repository.MeetingRepository;
 import com.ontime.user.domain.User;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +35,7 @@ public class MeetingService {
   private final MeetingRepository meetingRepository;
   private final AttendanceRepository attendanceRepository;
   private final GroupMembershipReader groupMembershipReader;
+  private final Clock clock;
 
   /** 일회성 그룹의 회차를 만들고 방장을 READY로 등록한다. */
   @Transactional
@@ -76,14 +78,38 @@ public class MeetingService {
    * <p>없는 회차와 삭제된 그룹의 회차는 {@code MEETING_NOT_FOUND}, 그룹 멤버가 아니면 {@code NOT_GROUP_MEMBER}.
    */
   public MeetingDetailResponse get(Long userId, Long meetingId) {
+    Meeting meeting = getMeetingForMember(userId, meetingId);
+    List<AttendanceResponse> attendances =
+        attendanceRepository.findResponsesByMeetingId(meetingId);
+    return MeetingDetailResponse.of(meeting, userId, attendances);
+  }
+
+  /**
+   * 출발: 요청자의 참석 상태를 {@code READY → MOVING} 으로 바꾸고 서버 시각을 출발 시각으로 기록한다.
+   *
+   * <p>회차/멤버 검사는 {@link #get} 과 같다. 이 회차에 참석 행이 없거나(시작 뒤 참여) 전이 규칙에 맞지 않으면 {@code
+   * INVALID_STATE}, 약속 3시간 전보다 이르면 {@code MEETING_NOT_OPEN}. 같은 행을 동시에 바꾸면 {@code @Version} 충돌로
+   * 나중 커밋이 실패한다.
+   */
+  @Transactional
+  public AttendanceResponse depart(Long userId, Long meetingId) {
+    getMeetingForMember(userId, meetingId);
+    Attendance attendance =
+        attendanceRepository
+            .findWithUserByMeetingIdAndUserId(meetingId, userId)
+            .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_STATE));
+    attendance.depart(Instant.now(clock));
+    return AttendanceResponse.from(attendance);
+  }
+
+  /** 없는 회차와 삭제된 그룹의 회차는 {@code MEETING_NOT_FOUND}, 그룹 멤버가 아니면 {@code NOT_GROUP_MEMBER}. */
+  private Meeting getMeetingForMember(Long userId, Long meetingId) {
     Meeting meeting =
         meetingRepository
             .findWithGroupById(meetingId)
             .filter(m -> m.getGroup().getDeletedAt() == null)
             .orElseThrow(() -> new BusinessException(ErrorCode.MEETING_NOT_FOUND));
     groupMembershipReader.getMembership(userId, meeting.getGroup().getId());
-    List<AttendanceResponse> attendances =
-        attendanceRepository.findResponsesByMeetingId(meetingId);
-    return MeetingDetailResponse.of(meeting, userId, attendances);
+    return meeting;
   }
 }

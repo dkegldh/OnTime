@@ -5,6 +5,7 @@ import com.ontime.meeting.domain.MeetingStatus;
 import com.ontime.meeting.dto.AttendanceResponse;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -22,6 +23,15 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
       order by a.id asc
       """)
   List<AttendanceResponse> findResponsesByMeetingId(@Param("meetingId") Long meetingId);
+
+  /** 회차에서 사용자의 참석 행. 응답에 사용자 정보가 필요하므로 같이 읽는다. */
+  @Query(
+      """
+      select a from Attendance a join fetch a.user
+      where a.meeting.id = :meetingId and a.user.id = :userId
+      """)
+  Optional<Attendance> findWithUserByMeetingIdAndUserId(
+      @Param("meetingId") Long meetingId, @Param("userId") Long userId);
 
   /**
    * 그룹을 나간 사용자의, 아직 시작하지 않은 회차의 참석 행을 지운다. 시작한 회차의 기록은 남는다.
