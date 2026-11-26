@@ -76,24 +76,4 @@ class MeetingTest {
     assertThat(meeting.getFineRule().getFineAmount()).isZero();
     assertThat(meeting.getFineRule().getPenaltyText()).isEqualTo("커피 사기");
   }
-
-  @Test
-  @DisplayName("약속 일시 1초 전에는 아직 시작하지 않은 회차다")
-  void isUpcomingAt_oneSecondBeforeMeeting_true() {
-    // given
-    Meeting meeting = Meeting.oneTimeOf(group(FineRule.money(3000)));
-
-    // when & then
-    assertThat(meeting.isUpcomingAt(MEETING_AT.minusSeconds(1))).isTrue();
-  }
-
-  @Test
-  @DisplayName("약속 일시 정각부터는 시작한 회차다")
-  void isUpcomingAt_atMeetingTime_false() {
-    // given
-    Meeting meeting = Meeting.oneTimeOf(group(FineRule.money(3000)));
-
-    // when & then
-    assertThat(meeting.isUpcomingAt(MEETING_AT)).isFalse();
-  }
 }

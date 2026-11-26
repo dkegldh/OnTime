@@ -3,6 +3,7 @@ package com.ontime.group.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -25,8 +26,8 @@ import com.ontime.group.dto.MeetingGroupSummary;
 import com.ontime.group.dto.UpdateMeetingGroupRequest;
 import com.ontime.group.repository.GroupMemberRepository;
 import com.ontime.group.repository.MeetingGroupRepository;
-import com.ontime.user.domain.User;
 import com.ontime.meeting.service.MeetingService;
+import com.ontime.user.domain.User;
 import com.ontime.user.service.UserService;
 import java.time.Clock;
 import java.time.Instant;
@@ -131,6 +132,10 @@ class MeetingGroupServiceTest {
     assertThat(response.type()).isEqualTo(GroupType.ONE_TIME);
     assertThat(response.fineAmount()).isEqualTo(3000L);
     assertThat(response.penaltyText()).isNull();
+    // 회차와 방장 참석 행은 같은 그룹과 같은 사용자로 만든다
+    ArgumentCaptor<MeetingGroup> groupCaptor = ArgumentCaptor.forClass(MeetingGroup.class);
+    verify(meetingService).createOneTimeMeeting(groupCaptor.capture(), eq(requester));
+    assertThat(groupCaptor.getValue()).isSameAs(owner.getGroup());
   }
 
   @Test
@@ -146,6 +151,7 @@ class MeetingGroupServiceTest {
         .isEqualTo(ErrorCode.MEETING_TIME_IN_PAST);
     verify(meetingGroupRepository, never()).save(any());
     verify(groupMemberRepository, never()).save(any());
+    verify(meetingService, never()).createOneTimeMeeting(any(), any());
   }
 
   @Test

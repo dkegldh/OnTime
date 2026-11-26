@@ -41,6 +41,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -73,6 +74,7 @@ class MeetingControllerTest {
   @Autowired private AttendanceRepository attendanceRepository;
   @Autowired private TransactionTemplate transactionTemplate;
   @Autowired private EntityManagerFactory entityManagerFactory;
+  @Autowired private JdbcTemplate jdbcTemplate;
 
   private Long ownerId;
   private Long guestId;
@@ -127,11 +129,15 @@ class MeetingControllerTest {
   }
 
   private String issueCode() throws Exception {
+    return issueCode(ownerId, groupId);
+  }
+
+  private String issueCode(Long groupOwnerId, Long groupId) throws Exception {
     String json =
         mockMvc
             .perform(
                 post(GROUPS + "/" + groupId + "/invite-codes")
-                    .header(USER_HEADER, ownerId.toString()))
+                    .header(USER_HEADER, groupOwnerId.toString()))
             .andExpect(status().isCreated())
             .andReturn()
             .getResponse()
@@ -183,6 +189,11 @@ class MeetingControllerTest {
             meetingRepository
                 .save(Meeting.oneTimeOf(meetingGroupRepository.findById(groupId).orElseThrow()))
                 .getId());
+  }
+
+  /** 상태 전이(Phase 3 스케줄러) 전이라 API로는 바꿀 수 없어 SQL로 회차 상태를 바꾼다. */
+  private void markOngoing(Long meetingId) {
+    jdbcTemplate.update("update meetings set status = 'ONGOING' where id = ?", meetingId);
   }
 
   private long attendanceCountOf(Long userId) {
@@ -293,6 +304,71 @@ class MeetingControllerTest {
   }
 
   @Test
+  @DisplayName("다른 회차에 참석 행이 있어도 상세에는 이 회차의 참석자만 나온다")
+  void detail_otherMeetingHasAttendees_returnsOnlyThisMeetingAttendees() throws Exception {
+    // given: 손님의 그룹 회차에 손님과 셋째가 참석
+    Long guestGroupId = createGroup(guestId);
+    Long thirdId = userRepository.save(User.create("셋째")).getId();
+    join(thirdId, issueCode(guestId, guestGroupId));
+
+    // when
+    ResultActions result = detail(ownerId, meetingIdOf(groupId));
+
+    // then
+    result
+        .andExpect(jsonPath("$.attendances", hasSize(1)))
+        .andExpect(jsonPath("$.attendances[0].userId").value(ownerId));
+  }
+
+  @Test
+  @DisplayName("참석자는 사용자 id가 아니라 회차에 등록된 순서로 나온다")
+  void detail_attendances_orderedByRegistrationNotUserId() throws Exception {
+    // given: 손님(나중에 만든 사용자)의 그룹에 방장(먼저 만든 사용자)이 참여
+    Long guestGroupId = createGroup(guestId);
+    join(ownerId, issueCode(guestId, guestGroupId));
+
+    // when
+    ResultActions result = detail(guestId, meetingIdOf(guestGroupId));
+
+    // then
+    result
+        .andExpect(jsonPath("$.attendances", hasSize(2)))
+        .andExpect(jsonPath("$.attendances[0].userId").value(guestId))
+        .andExpect(jsonPath("$.attendances[1].userId").value(ownerId));
+  }
+
+  @Test
+  @DisplayName("회차를 만든 뒤 그룹 행의 장소/규칙이 바뀌어도 상세는 회차에 복사된 값을 준다")
+  void detail_groupRulesChangedAfterCreation_returnsMeetingSnapshot() throws Exception {
+    // given: 그룹 규칙 수정 API는 Phase 5라 SQL로 바꾼다
+    Long meetingId = meetingIdOf(groupId);
+    jdbcTemplate.update(
+        """
+        update meeting_groups
+        set place_name = '바뀐 장소', latitude = 35.0, longitude = 129.0,
+            grace_minutes = 10, absent_after_minutes = 90, arrival_radius_m = 500,
+            fine_type = 'TEXT', fine_amount = 0, penalty_text = '커피 사기'
+        where id = ?
+        """,
+        groupId);
+
+    // when
+    ResultActions result = detail(ownerId, meetingId);
+
+    // then
+    result
+        .andExpect(jsonPath("$.placeName").value("강남역 11번 출구"))
+        .andExpect(jsonPath("$.latitude").value(37.4979))
+        .andExpect(jsonPath("$.longitude").value(127.0276))
+        .andExpect(jsonPath("$.graceMinutes").value(5))
+        .andExpect(jsonPath("$.absentAfterMinutes").value(60))
+        .andExpect(jsonPath("$.arrivalRadiusM").value(200))
+        .andExpect(jsonPath("$.fineType").value("MONEY"))
+        .andExpect(jsonPath("$.fineAmount").value(3000))
+        .andExpect(jsonPath("$.penaltyText").value(nullValue()));
+  }
+
+  @Test
   @DisplayName("회차 상세의 쿼리 수는 참석 인원과 관계없이 같다 (N+1 없음)")
   void detail_queryCount_doesNotGrowWithAttendees() throws Exception {
     // given
@@ -365,7 +441,51 @@ class MeetingControllerTest {
     assertThat(attendanceCountOf(guestId)).isZero();
   }
 
+  @Test
+  @DisplayName("약속 시각 전이라도 SCHEDULED가 아닌(ONGOING) 회차에는 참여해도 참석 행이 생기지 않는다")
+  void join_ongoingMeetingBeforeMeetingTime_noAttendance() throws Exception {
+    // given
+    String code = issueCode();
+    markOngoing(meetingIdOf(groupId));
+
+    // when
+    join(guestId, code);
+
+    // then
+    assertThat(attendanceCountOf(guestId)).isZero();
+  }
+
   // ---- 나가기와 참석 행 ----
+
+  @Test
+  @DisplayName("약속 시각 전이라도 SCHEDULED가 아닌(ONGOING) 회차의 참석 기록은 나가도 남는다")
+  void leave_ongoingMeetingBeforeMeetingTime_keepsAttendance() throws Exception {
+    // given
+    join(guestId, issueCode());
+    markOngoing(meetingIdOf(groupId));
+
+    // when
+    leave(guestId);
+
+    // then
+    assertThat(attendanceCountOf(guestId)).isEqualTo(1);
+  }
+
+  @Test
+  @DisplayName("방장의 나가기가 OWNER_CANNOT_LEAVE로 거절되면 방장의 참석 행도 그대로다")
+  void leave_ownerRejected_keepsOwnerAttendance() throws Exception {
+    // when
+    ResultActions result =
+        mockMvc.perform(
+            delete(GROUPS + "/" + groupId + "/members/me")
+                .header(USER_HEADER, ownerId.toString()));
+
+    // then
+    result
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("OWNER_CANNOT_LEAVE"));
+    assertThat(attendanceCountOf(ownerId)).isEqualTo(1);
+  }
 
   @Test
   @DisplayName("약속 1초 전에 나가면 그 회차의 참석 행이 지워져 상세에서 사라진다")
@@ -565,7 +685,8 @@ class MeetingControllerTest {
                                 meetingRepository.getReferenceById(meetingId),
                                 userRepository.getReferenceById(ownerId)))))
         .isInstanceOf(DataIntegrityViolationException.class)
-        .satisfies(e -> assertThat(violatedConstraint(e)).isEqualTo(Attendance.UNIQUE_MEETING_USER));
+        .satisfies(
+            e -> assertThat(violatedConstraint(e)).isEqualTo(Attendance.UNIQUE_MEETING_USER));
     assertThat(attendanceCountOf(ownerId)).isEqualTo(1);
   }
 

@@ -33,6 +33,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 @ExtendWith(MockitoExtension.class)
 class MeetingServiceTest {
@@ -41,6 +42,8 @@ class MeetingServiceTest {
   private static final Long USER_ID = 10L;
   private static final Long OTHER_ID = 20L;
   private static final Long MEETING_ID = 100L;
+  // 회차 id 와 다른 값이어야 멤버 확인에 회차 id 를 넘기는 실수를 잡는다.
+  private static final Long GROUP_ID = 1L;
 
   @Mock private MeetingRepository meetingRepository;
   @Mock private AttendanceRepository attendanceRepository;
@@ -54,14 +57,17 @@ class MeetingServiceTest {
   }
 
   private static MeetingGroup group() {
-    return MeetingGroup.createOneTime(
-        "금요일 모임",
-        Place.of("강남역", 37.4979, 127.0276),
-        LocalDate.of(2026, 12, 4),
-        LocalTime.of(19, 0),
-        ArrivalRule.of(5, 60, 200),
-        FineRule.money(3000),
-        NOW);
+    MeetingGroup group =
+        MeetingGroup.createOneTime(
+            "금요일 모임",
+            Place.of("강남역", 37.4979, 127.0276),
+            LocalDate.of(2026, 12, 4),
+            LocalTime.of(19, 0),
+            ArrivalRule.of(5, 60, 200),
+            FineRule.money(3000),
+            NOW);
+    ReflectionTestUtils.setField(group, "id", GROUP_ID);
+    return group;
   }
 
   private static AttendanceResponse attendance(Long userId, AttendanceStatus status) {
@@ -108,7 +114,7 @@ class MeetingServiceTest {
   void get_nonMember_rejectedWithNotGroupMember() {
     // given
     givenMeeting(Meeting.oneTimeOf(group()));
-    given(groupMembershipReader.getMembership(any(), any()))
+    given(groupMembershipReader.getMembership(USER_ID, GROUP_ID))
         .willThrow(new BusinessException(ErrorCode.NOT_GROUP_MEMBER));
 
     // when & then
@@ -125,7 +131,7 @@ class MeetingServiceTest {
     // given
     MeetingGroup group = group();
     givenMeeting(Meeting.oneTimeOf(group));
-    given(groupMembershipReader.getMembership(any(), any()))
+    given(groupMembershipReader.getMembership(USER_ID, GROUP_ID))
         .willReturn(GroupMember.member(group, User.create("멤버")));
     given(attendanceRepository.findResponsesByMeetingId(MEETING_ID))
         .willReturn(
@@ -149,7 +155,7 @@ class MeetingServiceTest {
     // given
     MeetingGroup group = group();
     givenMeeting(Meeting.oneTimeOf(group));
-    given(groupMembershipReader.getMembership(any(), any()))
+    given(groupMembershipReader.getMembership(USER_ID, GROUP_ID))
         .willReturn(GroupMember.member(group, User.create("멤버")));
     given(attendanceRepository.findResponsesByMeetingId(MEETING_ID))
         .willReturn(List.of(attendance(OTHER_ID, AttendanceStatus.READY)));
