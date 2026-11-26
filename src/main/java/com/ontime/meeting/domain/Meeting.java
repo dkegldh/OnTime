@@ -83,13 +83,17 @@ public class Meeting extends BaseTimeEntity {
     return !now.isBefore(meetingAt.minus(BUTTON_OPEN_BEFORE));
   }
 
-  /** 지각이 시작되는 시각. 약속시간 + 유예시간 정각부터 지각이다. */
-  private Instant lateFrom() {
+  /** 약속시간 + 유예시간. 회차에 복사된 유예시간을 쓴다. */
+  private Instant graceEndsAt() {
     return meetingAt.plus(Duration.ofMinutes(arrivalRule.getGraceMinutes()));
   }
 
-  /** 서버 시각 {@code now} 가 지각 시작 시각(약속시간 + 유예) 이후인지. 정각을 포함한다. */
-  public boolean isLateAt(Instant now) {
-    return !now.isBefore(lateFrom());
+  /**
+   * 출발 버튼이 닫혔는지. 약속시간 + 유예 정각부터 닫힌다.
+   *
+   * <p>출발 전용 경계다. 도착/지각 판정의 정각 처리는 그 이슈에서 따로 정하므로 이 메서드를 재사용하지 않는다.
+   */
+  public boolean isDepartClosedAt(Instant now) {
+    return !now.isBefore(graceEndsAt());
   }
 }

@@ -90,7 +90,7 @@ public class Attendance extends BaseTimeEntity {
     if (!meeting.isButtonOpenAt(now)) {
       throw new BusinessException(ErrorCode.MEETING_NOT_OPEN);
     }
-    if (meeting.isLateAt(now)) {
+    if (meeting.isDepartClosedAt(now)) {
       throw new BusinessException(ErrorCode.INVALID_STATE);
     }
     this.status = AttendanceStatus.MOVING;
