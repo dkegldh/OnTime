@@ -24,6 +24,7 @@ import com.ontime.support.MutableClockConfig;
 import com.ontime.user.domain.User;
 import com.ontime.user.repository.UserRepository;
 import jakarta.persistence.EntityManagerFactory;
+import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Map;
 import org.hibernate.SessionFactory;
@@ -701,5 +702,240 @@ class MeetingControllerTest {
       }
     }
     return null;
+  }
+
+  // ---- 출발 ----
+
+  // 약속 10:00Z, 유예 5분 → 버튼은 07:00:00Z 부터 열리고 10:05:00Z 정각부터 지각이다.
+  private static final Instant OPENS_AT = Instant.parse("2026-11-28T07:00:00Z");
+  private static final Instant LATE_FROM = Instant.parse("2026-11-28T10:05:00Z");
+
+  private ResultActions depart(Long userId, Long meetingId) throws Exception {
+    return mockMvc.perform(
+        post(MEETINGS + "/" + meetingId + "/depart").header(USER_HEADER, userId.toString()));
+  }
+
+  /** DB에 저장된 참석 행의 상태와 출발 시각. API 응답이 아니라 실제 커밋 결과를 본다. */
+  private Map<String, Object> attendanceRow(Long meetingId, Long userId) {
+    return jdbcTemplate.queryForMap(
+        "select status, departed_at, version from attendances where meeting_id = ? and user_id = ?",
+        meetingId,
+        userId);
+  }
+
+  private void assertStillReady(Long meetingId, Long userId) {
+    Map<String, Object> row = attendanceRow(meetingId, userId);
+    assertThat(row.get("status")).isEqualTo("READY");
+    assertThat(row.get("departed_at")).isNull();
+    assertThat(row.get("version")).isEqualTo(0L);
+  }
+
+  @Test
+  @DisplayName("버튼이 열린 시간에 출발하면 200과 내 참석 상태를 주고, DB에 MOVING과 서버 시각이 저장된다")
+  void depart_openWindow_persistsMovingWithServerTime() throws Exception {
+    // given
+    Long meetingId = meetingIdOf(groupId);
+    join(guestId, issueCode());
+    Instant now = Instant.parse("2026-11-28T09:30:00Z");
+    clock.setInstant(now);
+
+    // when
+    ResultActions result = depart(ownerId, meetingId);
+
+    // then
+    result
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.userId").value(ownerId))
+        .andExpect(jsonPath("$.nickname").value("방장"))
+        .andExpect(jsonPath("$.profileImageUrl").value(nullValue()))
+        .andExpect(jsonPath("$.status").value("MOVING"))
+        .andExpect(jsonPath("$.departedAt").value("2026-11-28T09:30:00Z"))
+        .andExpect(jsonPath("$.arrivedAt").value(nullValue()));
+    Map<String, Object> row = attendanceRow(meetingId, ownerId);
+    assertThat(row.get("status")).isEqualTo("MOVING");
+    assertThat(((Timestamp) row.get("departed_at")).toInstant()).isEqualTo(now);
+    assertThat(row.get("version")).isEqualTo(1L);
+    // 다른 멤버의 참석 행은 바뀌지 않는다
+    assertStillReady(meetingId, guestId);
+    detail(guestId, meetingId)
+        .andExpect(jsonPath("$.attendances[0].status").value("MOVING"))
+        .andExpect(jsonPath("$.attendances[1].status").value("READY"));
+  }
+
+  @Test
+  @DisplayName("같은 사용자가 다른 회차에도 참석 행이 있으면 출발한 회차의 행만 바뀐다")
+  void depart_userHasAttendanceInOtherMeeting_changesOnlyTargetMeeting() throws Exception {
+    // given: 같은 그룹의 두 회차 모두에 방장의 READY 행이 있다 (먼저 만든 회차의 행이 id가 더 작다)
+    Long firstMeetingId = meetingIdOf(groupId);
+    Long secondMeetingId = addMeeting(groupId);
+    transactionTemplate.executeWithoutResult(
+        s ->
+            attendanceRepository.save(
+                Attendance.ready(
+                    meetingRepository.findById(secondMeetingId).orElseThrow(),
+                    userRepository.findById(ownerId).orElseThrow())));
+    clock.setInstant(Instant.parse("2026-11-28T09:30:00Z"));
+
+    // when
+    depart(ownerId, secondMeetingId).andExpect(status().isOk());
+
+    // then
+    Map<String, Object> target = attendanceRow(secondMeetingId, ownerId);
+    assertThat(target.get("status")).isEqualTo("MOVING");
+    assertThat(target.get("version")).isEqualTo(1L);
+    assertStillReady(firstMeetingId, ownerId);
+  }
+
+  @Test
+  @DisplayName("약속 3시간 전 정각에는 출발할 수 있다")
+  void depart_exactlyAtOpen_ok() throws Exception {
+    // given
+    Long meetingId = meetingIdOf(groupId);
+    clock.setInstant(OPENS_AT);
+
+    // when & then
+    depart(ownerId, meetingId)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.departedAt").value("2026-11-28T07:00:00Z"));
+    assertThat(attendanceRow(meetingId, ownerId).get("status")).isEqualTo("MOVING");
+  }
+
+  @Test
+  @DisplayName("약속 3시간 전 1초 전에 출발하면 409 MEETING_NOT_OPEN이고 참석 행은 그대로다")
+  void depart_oneSecondBeforeOpen_conflictMeetingNotOpen() throws Exception {
+    // given
+    Long meetingId = meetingIdOf(groupId);
+    clock.setInstant(OPENS_AT.minusSeconds(1));
+
+    // when & then
+    depart(ownerId, meetingId)
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("MEETING_NOT_OPEN"))
+        .andExpect(jsonPath("$.message").value("아직 출발/도착을 누를 수 없는 시간이에요."));
+    assertStillReady(meetingId, ownerId);
+  }
+
+  @Test
+  @DisplayName("약속시간 + 유예 정각에 출발하면 READY여도 409 INVALID_STATE이고 참석 행은 그대로다")
+  void depart_atGraceEnd_conflictInvalidState() throws Exception {
+    // given
+    Long meetingId = meetingIdOf(groupId);
+    clock.setInstant(LATE_FROM);
+
+    // when & then
+    depart(ownerId, meetingId)
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("INVALID_STATE"))
+        .andExpect(jsonPath("$.message").value("지금은 할 수 없는 동작이에요."));
+    assertStillReady(meetingId, ownerId);
+  }
+
+  @Test
+  @DisplayName("유예 끝나기 1초 전에는 출발할 수 있다")
+  void depart_oneSecondBeforeGraceEnd_ok() throws Exception {
+    // given
+    Long meetingId = meetingIdOf(groupId);
+    clock.setInstant(LATE_FROM.minusSeconds(1));
+
+    // when & then
+    depart(ownerId, meetingId).andExpect(status().isOk());
+    assertThat(attendanceRow(meetingId, ownerId).get("status")).isEqualTo("MOVING");
+  }
+
+  @Test
+  @DisplayName("이미 출발했는데 다시 출발하면 409 INVALID_STATE이고 처음 출발 시각이 그대로다")
+  void depart_twice_conflictInvalidStateAndKeepsFirstDepartedAt() throws Exception {
+    // given
+    Long meetingId = meetingIdOf(groupId);
+    clock.setInstant(Instant.parse("2026-11-28T09:00:00Z"));
+    depart(ownerId, meetingId).andExpect(status().isOk());
+    clock.setInstant(Instant.parse("2026-11-28T09:10:00Z"));
+
+    // when & then
+    depart(ownerId, meetingId)
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("INVALID_STATE"));
+    Map<String, Object> row = attendanceRow(meetingId, ownerId);
+    assertThat(row.get("status")).isEqualTo("MOVING");
+    assertThat(((Timestamp) row.get("departed_at")).toInstant())
+        .isEqualTo(Instant.parse("2026-11-28T09:00:00Z"));
+    assertThat(row.get("version")).isEqualTo(1L);
+  }
+
+  @Test
+  @DisplayName("그룹 멤버가 아니면 출발이 403 NOT_GROUP_MEMBER다")
+  void depart_nonMember_forbidden() throws Exception {
+    // given
+    Long meetingId = meetingIdOf(groupId);
+    clock.setInstant(Instant.parse("2026-11-28T09:30:00Z"));
+
+    // when & then
+    depart(guestId, meetingId)
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("NOT_GROUP_MEMBER"));
+    assertStillReady(meetingId, ownerId);
+  }
+
+  @Test
+  @DisplayName("없는 회차에 출발하면 404 MEETING_NOT_FOUND다")
+  void depart_missingMeeting_notFound() throws Exception {
+    // given
+    clock.setInstant(Instant.parse("2026-11-28T09:30:00Z"));
+
+    // when & then
+    depart(ownerId, meetingIdOf(groupId) + 1000)
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("MEETING_NOT_FOUND"));
+  }
+
+  @Test
+  @DisplayName("삭제된 그룹의 회차에 출발하면 404 MEETING_NOT_FOUND이고 참석 행은 그대로다")
+  void depart_deletedGroup_notFound() throws Exception {
+    // given
+    Long meetingId = meetingIdOf(groupId);
+    mockMvc
+        .perform(delete(GROUPS + "/" + groupId).header(USER_HEADER, ownerId.toString()))
+        .andExpect(status().isNoContent());
+    clock.setInstant(Instant.parse("2026-11-28T09:30:00Z"));
+
+    // when & then
+    depart(ownerId, meetingId)
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("MEETING_NOT_FOUND"));
+    assertStillReady(meetingId, ownerId);
+  }
+
+  @Test
+  @DisplayName("회차가 시작한 뒤 참여해 참석 행이 없는 멤버가 출발하면 409 INVALID_STATE이고 참석 행이 생기지 않는다")
+  void depart_joinedAfterStart_conflictInvalidState() throws Exception {
+    // given: 약속 정각에 참여해 참석 행이 없다. 출발 시각은 유예 안이라 시간 때문에 거절되지 않는다
+    Long meetingId = meetingIdOf(groupId);
+    String code = issueCode();
+    clock.setInstant(MEETING_AT);
+    join(guestId, code);
+    clock.setInstant(MEETING_AT.plusSeconds(60));
+
+    // when & then
+    depart(guestId, meetingId)
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("INVALID_STATE"));
+    assertThat(attendanceCountOf(guestId)).isZero();
+  }
+
+  @Test
+  @DisplayName("나간 멤버는 참석 기록이 남아 있어도 출발할 수 없다 (403 NOT_GROUP_MEMBER)")
+  void depart_leftMemberWithKeptAttendance_forbidden() throws Exception {
+    // given: 약속 정각에 나가서 참석 행이 남은 상태. 출발 시각은 유예 안이다
+    Long meetingId = meetingIdOf(groupId);
+    join(guestId, issueCode());
+    clock.setInstant(MEETING_AT);
+    leave(guestId);
+    clock.setInstant(MEETING_AT.plusSeconds(60));
+
+    // when & then
+    depart(guestId, meetingId)
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("NOT_GROUP_MEMBER"));
+    assertStillReady(meetingId, guestId);
   }
 }

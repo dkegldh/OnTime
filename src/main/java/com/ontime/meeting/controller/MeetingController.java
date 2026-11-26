@@ -2,6 +2,7 @@ package com.ontime.meeting.controller;
 
 import com.ontime.global.auth.LoginUser;
 import com.ontime.global.common.CursorResponse;
+import com.ontime.meeting.dto.AttendanceResponse;
 import com.ontime.meeting.dto.MeetingDetailResponse;
 import com.ontime.meeting.dto.MeetingSummary;
 import com.ontime.meeting.service.MeetingService;
@@ -13,6 +14,7 @@ import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -40,5 +42,16 @@ public class MeetingController {
   public MeetingDetailResponse get(
       @Parameter(hidden = true) @LoginUser Long userId, @PathVariable Long meetingId) {
     return meetingService.get(userId, meetingId);
+  }
+
+  @Operation(
+      summary = "출발",
+      description =
+          "내 참석 상태를 READY → MOVING 으로 바꿉니다. 약속 3시간 전부터, 약속시간 + 유예 전까지 누를 수 있습니다."
+              + " 출발 시각은 서버 시각입니다.")
+  @PostMapping("/meetings/{meetingId}/depart")
+  public AttendanceResponse depart(
+      @Parameter(hidden = true) @LoginUser Long userId, @PathVariable Long meetingId) {
+    return meetingService.depart(userId, meetingId);
   }
 }

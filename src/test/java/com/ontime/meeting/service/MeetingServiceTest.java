@@ -15,6 +15,7 @@ import com.ontime.group.domain.GroupMember;
 import com.ontime.group.domain.MeetingGroup;
 import com.ontime.group.domain.Place;
 import com.ontime.group.service.GroupMembershipReader;
+import com.ontime.meeting.domain.Attendance;
 import com.ontime.meeting.domain.AttendanceStatus;
 import com.ontime.meeting.domain.Meeting;
 import com.ontime.meeting.dto.AttendanceResponse;
@@ -22,9 +23,11 @@ import com.ontime.meeting.dto.MeetingDetailResponse;
 import com.ontime.meeting.repository.AttendanceRepository;
 import com.ontime.meeting.repository.MeetingRepository;
 import com.ontime.user.domain.User;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,6 +48,9 @@ class MeetingServiceTest {
   // 회차 id 와 다른 값이어야 멤버 확인에 회차 id 를 넘기는 실수를 잡는다.
   private static final Long GROUP_ID = 1L;
 
+  // 서비스가 출발 시각으로 쓰는 서버 시각. 약속(2026-12-04T10:00:00Z) 30분 전이라 버튼이 열려 있다.
+  private static final Instant DEPART_NOW = Instant.parse("2026-12-04T09:30:00Z");
+
   @Mock private MeetingRepository meetingRepository;
   @Mock private AttendanceRepository attendanceRepository;
   @Mock private GroupMembershipReader groupMembershipReader;
@@ -53,7 +59,11 @@ class MeetingServiceTest {
 
   @BeforeEach
   void setUp() {
-    service = new MeetingService(meetingRepository, attendanceRepository, groupMembershipReader);
+    service = new MeetingService(
+            meetingRepository,
+            attendanceRepository,
+            groupMembershipReader,
+            Clock.fixed(DEPART_NOW, ZoneOffset.UTC));
   }
 
   private static MeetingGroup group() {
@@ -166,5 +176,99 @@ class MeetingServiceTest {
     // then
     assertThat(response.myStatus()).isNull();
     assertThat(response.attendances()).hasSize(1);
+  }
+
+  // ---- 출발 ----
+
+  @Test
+  @DisplayName("출발하면 내 참석 행이 MOVING이 되고 출발 시각은 주입받은 Clock의 시각이다")
+  void depart_member_movesWithClockTime() {
+    // given
+    MeetingGroup group = group();
+    Meeting meeting = Meeting.oneTimeOf(group);
+    givenMeeting(meeting);
+    User user = User.create("멤버");
+    ReflectionTestUtils.setField(user, "id", USER_ID);
+    given(groupMembershipReader.getMembership(USER_ID, GROUP_ID))
+        .willReturn(GroupMember.member(group, user));
+    Attendance attendance = Attendance.ready(meeting, user);
+    given(attendanceRepository.findWithUserByMeetingIdAndUserId(MEETING_ID, USER_ID))
+        .willReturn(Optional.of(attendance));
+
+    // when
+    AttendanceResponse response = service.depart(USER_ID, MEETING_ID);
+
+    // then
+    assertThat(attendance.getStatus()).isEqualTo(AttendanceStatus.MOVING);
+    assertThat(attendance.getDepartedAt()).isEqualTo(DEPART_NOW);
+    assertThat(response.userId()).isEqualTo(USER_ID);
+    assertThat(response.status()).isEqualTo(AttendanceStatus.MOVING);
+    assertThat(response.departedAt()).isEqualTo(DEPART_NOW);
+  }
+
+  @Test
+  @DisplayName("없는 회차에 출발하면 MEETING_NOT_FOUND로 거절된다")
+  void depart_missingMeeting_rejectedWithMeetingNotFound() {
+    // given
+    given(meetingRepository.findWithGroupById(MEETING_ID)).willReturn(Optional.empty());
+
+    // when & then
+    assertThatThrownBy(() -> service.depart(USER_ID, MEETING_ID))
+        .isInstanceOf(BusinessException.class)
+        .extracting("errorCode")
+        .isEqualTo(ErrorCode.MEETING_NOT_FOUND);
+    verify(attendanceRepository, never()).findWithUserByMeetingIdAndUserId(any(), any());
+  }
+
+  @Test
+  @DisplayName("삭제된 그룹의 회차에 출발하면 멤버 확인 전에 MEETING_NOT_FOUND로 거절된다")
+  void depart_deletedGroup_rejectedWithMeetingNotFound() {
+    // given
+    MeetingGroup group = group();
+    Meeting meeting = Meeting.oneTimeOf(group);
+    group.delete(NOW);
+    givenMeeting(meeting);
+
+    // when & then
+    assertThatThrownBy(() -> service.depart(USER_ID, MEETING_ID))
+        .isInstanceOf(BusinessException.class)
+        .extracting("errorCode")
+        .isEqualTo(ErrorCode.MEETING_NOT_FOUND);
+    verify(groupMembershipReader, never()).getMembership(any(), any());
+    verify(attendanceRepository, never()).findWithUserByMeetingIdAndUserId(any(), any());
+  }
+
+  @Test
+  @DisplayName("그룹 멤버가 아니면 출발이 NOT_GROUP_MEMBER로 거절되고 참석 행을 읽지 않는다")
+  void depart_nonMember_rejectedWithNotGroupMember() {
+    // given
+    givenMeeting(Meeting.oneTimeOf(group()));
+    given(groupMembershipReader.getMembership(USER_ID, GROUP_ID))
+        .willThrow(new BusinessException(ErrorCode.NOT_GROUP_MEMBER));
+
+    // when & then
+    assertThatThrownBy(() -> service.depart(USER_ID, MEETING_ID))
+        .isInstanceOf(BusinessException.class)
+        .extracting("errorCode")
+        .isEqualTo(ErrorCode.NOT_GROUP_MEMBER);
+    verify(attendanceRepository, never()).findWithUserByMeetingIdAndUserId(any(), any());
+  }
+
+  @Test
+  @DisplayName("멤버지만 이 회차에 참석 행이 없으면(시작 뒤 참여) 출발이 INVALID_STATE로 거절된다")
+  void depart_memberWithoutAttendance_rejectedWithInvalidState() {
+    // given
+    MeetingGroup group = group();
+    givenMeeting(Meeting.oneTimeOf(group));
+    given(groupMembershipReader.getMembership(USER_ID, GROUP_ID))
+        .willReturn(GroupMember.member(group, User.create("멤버")));
+    given(attendanceRepository.findWithUserByMeetingIdAndUserId(MEETING_ID, USER_ID))
+        .willReturn(Optional.empty());
+
+    // when & then
+    assertThatThrownBy(() -> service.depart(USER_ID, MEETING_ID))
+        .isInstanceOf(BusinessException.class)
+        .extracting("errorCode")
+        .isEqualTo(ErrorCode.INVALID_STATE);
   }
 }
