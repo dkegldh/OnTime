@@ -736,23 +736,39 @@ class MeetingGroupControllerTest {
   }
 
   @Test
-  @DisplayName("삭제된 그룹에 일반 멤버가 수정, 삭제를 요청하면 OWNER_ONLY가 아니라 404 GROUP_NOT_FOUND다")
-  void updateAndDelete_plainMemberOnDeletedGroup_notFoundBeforeOwnerCheck() throws Exception {
+  @DisplayName("삭제된 그룹에 일반 멤버가 이름 수정을 요청하면 OWNER_ONLY가 아니라 404 GROUP_NOT_FOUND이고 이름이 그대로다")
+  void update_plainMemberOnDeletedGroup_notFoundBeforeOwnerCheck() throws Exception {
     // given
     Long groupId = createGroup(ownerId);
     addPlainMember(groupId, otherId);
     deleteGroup(ownerId, groupId).andExpect(status().isNoContent());
 
-    // when & then
-    rename(otherId, groupId, "토요일 모임")
+    // when
+    ResultActions result = rename(otherId, groupId, "토요일 모임");
+
+    // then
+    result
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value("GROUP_NOT_FOUND"));
-    deleteGroup(otherId, groupId)
+    assertThat(findGroup(groupId).getName()).isEqualTo("금요일 모임");
+  }
+
+  @Test
+  @DisplayName("삭제된 그룹에 일반 멤버가 삭제를 요청하면 OWNER_ONLY가 아니라 404 GROUP_NOT_FOUND이고 삭제 시각이 그대로다")
+  void delete_plainMemberOnDeletedGroup_notFoundBeforeOwnerCheck() throws Exception {
+    // given
+    Long groupId = createGroup(ownerId);
+    addPlainMember(groupId, otherId);
+    deleteGroup(ownerId, groupId).andExpect(status().isNoContent());
+
+    // when
+    ResultActions result = deleteGroup(otherId, groupId);
+
+    // then
+    result
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.code").value("GROUP_NOT_FOUND"));
-    MeetingGroup group = findGroup(groupId);
-    assertThat(group.getName()).isEqualTo("금요일 모임");
-    assertThat(group.getDeletedAt()).isEqualTo(NOW);
+    assertThat(findGroup(groupId).getDeletedAt()).isEqualTo(NOW);
   }
 
   // ---- 동시 수정 (낙관적 락) ----
