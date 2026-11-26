@@ -36,4 +36,9 @@ public class ArrivalRule {
     }
     return new ArrivalRule(graceMinutes, absentAfterMinutes, arrivalRadiusM);
   }
+
+  /** 회차 스냅샷용 복사본. */
+  public ArrivalRule copy() {
+    return new ArrivalRule(graceMinutes, absentAfterMinutes, arrivalRadiusM);
+  }
 }

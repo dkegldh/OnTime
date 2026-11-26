@@ -95,12 +95,20 @@ public class MeetingGroup extends BaseTimeEntity {
       ArrivalRule arrivalRule,
       FineRule fineRule,
       Instant now) {
-    Instant meetingAt = meetingDate.atTime(meetingTime).atZone(MEETING_ZONE).toInstant();
-    if (!meetingAt.isAfter(now)) {
+    if (!toInstant(meetingDate, meetingTime).isAfter(now)) {
       throw new BusinessException(ErrorCode.MEETING_TIME_IN_PAST);
     }
     return new MeetingGroup(
         name, GroupType.ONE_TIME, place, meetingDate, meetingTime, arrivalRule, fineRule);
+  }
+
+  /** 일회성 약속의 약속 일시. KST 날짜와 시각을 UTC 시각으로 바꾼다. */
+  public Instant oneTimeMeetingAt() {
+    return toInstant(startDate, meetingTime);
+  }
+
+  private static Instant toInstant(LocalDate date, LocalTime time) {
+    return date.atTime(time).atZone(MEETING_ZONE).toInstant();
   }
 
   public void rename(String name) {
