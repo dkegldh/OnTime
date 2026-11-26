@@ -218,5 +218,30 @@ class AttendanceTest {
         .extracting("errorCode")
         .isEqualTo(ErrorCode.INVALID_STATE);
     assertThat(attendance.getStatus()).isEqualTo(AttendanceStatus.EXCUSED);
+    assertThat(attendance.getDepartedAt()).isNull();
+  }
+
+  @Test
+  @DisplayName("회차를 만든 뒤 그룹 유예시간이 바뀌어도 출발 마감은 회차에 복사된 유예시간으로 판단한다")
+  void depart_groupGraceChangedAfterSnapshot_usesMeetingSnapshot() {
+    // given: 회차는 유예 5분으로 복사됐고, 그 뒤 그룹 유예만 0분으로 바뀐다
+    MeetingGroup group =
+        MeetingGroup.createOneTime(
+            "금요일 모임",
+            Place.of("강남역", 37.4979, 127.0276),
+            LocalDate.of(2026, 12, 4),
+            LocalTime.of(19, 0),
+            ArrivalRule.of(5, 60, 200),
+            FineRule.money(3000),
+            Instant.parse("2026-11-25T03:00:00Z"));
+    Meeting meeting = Meeting.oneTimeOf(group);
+    ReflectionTestUtils.setField(group, "arrivalRule", ArrivalRule.of(0, 60, 200));
+    Attendance attendance = Attendance.ready(meeting, User.create("멤버"));
+
+    // when: 그룹 기준(유예 0분)이면 마감, 회차 기준(유예 5분)이면 유예 중인 약속시간 정각
+    attendance.depart(Instant.parse("2026-12-04T10:00:00Z"));
+
+    // then
+    assertThat(attendance.getStatus()).isEqualTo(AttendanceStatus.MOVING);
   }
 }

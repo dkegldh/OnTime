@@ -747,6 +747,7 @@ class MeetingControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.userId").value(ownerId))
         .andExpect(jsonPath("$.nickname").value("방장"))
+        .andExpect(jsonPath("$.profileImageUrl").value(nullValue()))
         .andExpect(jsonPath("$.status").value("MOVING"))
         .andExpect(jsonPath("$.departedAt").value("2026-11-28T09:30:00Z"))
         .andExpect(jsonPath("$.arrivedAt").value(nullValue()));
@@ -759,6 +760,30 @@ class MeetingControllerTest {
     detail(guestId, meetingId)
         .andExpect(jsonPath("$.attendances[0].status").value("MOVING"))
         .andExpect(jsonPath("$.attendances[1].status").value("READY"));
+  }
+
+  @Test
+  @DisplayName("같은 사용자가 다른 회차에도 참석 행이 있으면 출발한 회차의 행만 바뀐다")
+  void depart_userHasAttendanceInOtherMeeting_changesOnlyTargetMeeting() throws Exception {
+    // given: 같은 그룹의 두 회차 모두에 방장의 READY 행이 있다 (먼저 만든 회차의 행이 id가 더 작다)
+    Long firstMeetingId = meetingIdOf(groupId);
+    Long secondMeetingId = addMeeting(groupId);
+    transactionTemplate.executeWithoutResult(
+        s ->
+            attendanceRepository.save(
+                Attendance.ready(
+                    meetingRepository.findById(secondMeetingId).orElseThrow(),
+                    userRepository.findById(ownerId).orElseThrow())));
+    clock.setInstant(Instant.parse("2026-11-28T09:30:00Z"));
+
+    // when
+    depart(ownerId, secondMeetingId).andExpect(status().isOk());
+
+    // then
+    Map<String, Object> target = attendanceRow(secondMeetingId, ownerId);
+    assertThat(target.get("status")).isEqualTo("MOVING");
+    assertThat(target.get("version")).isEqualTo(1L);
+    assertStillReady(firstMeetingId, ownerId);
   }
 
   @Test
