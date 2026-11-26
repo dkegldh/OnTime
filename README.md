@@ -125,8 +125,8 @@ erDiagram
 | `POST` | `/api/v1/meeting-groups` | 일회성 약속 그룹 생성, 요청자를 방장으로 등록 | `201` + `Location` |
 | `GET` | `/api/v1/meeting-groups?cursor=&size=` | 내가 속한 그룹 목록 (id 내림차순) | `200` |
 | `GET` | `/api/v1/meeting-groups/{groupId}` | 그룹 상세 | `200` |
-| `PATCH` | `/api/v1/meeting-groups/{groupId}` | 그룹 이름 수정 | `200` |
-| `DELETE` | `/api/v1/meeting-groups/{groupId}` | 그룹 삭제 (soft delete) | `204` |
+| `PATCH` | `/api/v1/meeting-groups/{groupId}` | 그룹 이름 수정 (방장만) | `200` |
+| `DELETE` | `/api/v1/meeting-groups/{groupId}` | 그룹 삭제 (soft delete, 방장만) | `204` |
 
 #### 생성 요청
 
@@ -209,15 +209,16 @@ erDiagram
 | `MEETING_TIME_IN_PAST` | 400 | 생성: 약속 일시가 서버 시각 이전(같은 시각 포함) |
 | `GROUP_NOT_FOUND` | 404 | 상세/수정/삭제: 없거나 삭제된 그룹 |
 | `NOT_GROUP_MEMBER` | 403 | 상세/수정/삭제: 그룹 멤버가 아님 |
+| `OWNER_ONLY` | 403 | 수정/삭제: 방장이 아닌 일반 멤버 |
 | `CONCURRENT_UPDATE` | 409 | 수정/삭제: 같은 그룹을 다른 요청이 먼저 바꿈. 다시 시도 |
 
-> 수정/삭제를 방장만 할 수 있게 하는 검사(`OWNER_ONLY`)는 로드맵 "권한" 이슈에서 추가합니다.
+검사 순서는 `GROUP_NOT_FOUND` → `NOT_GROUP_MEMBER` → `OWNER_ONLY` 입니다. 거절된 요청은 그룹을 바꾸지 않습니다.
 
 ### 그룹 참여
 
 | 메서드 | 경로 | 설명 | 성공 |
 | --- | --- | --- | --- |
-| `POST` | `/api/v1/meeting-groups/{groupId}/invite-codes` | 초대 코드 발급(재발급) | `201` |
+| `POST` | `/api/v1/meeting-groups/{groupId}/invite-codes` | 초대 코드 발급(재발급, 방장만) | `201` |
 | `POST` | `/api/v1/meeting-groups/members` | 초대 코드로 참여, `MEMBER` 로 등록 | `201` + `Location` (그룹 상세) |
 | `DELETE` | `/api/v1/meeting-groups/{groupId}/members/me` | 그룹 나가기 | `204` |
 | `GET` | `/api/v1/meeting-groups/{groupId}/members?cursor=&size=` | 멤버 목록 (참여 순) | `200` |
@@ -269,6 +270,5 @@ erDiagram
 | `OWNER_CANNOT_LEAVE` | 409 | 나가기: 방장 |
 | `GROUP_NOT_FOUND` | 404 | 코드 발급/나가기/멤버 목록: 없거나 삭제된 그룹 |
 | `NOT_GROUP_MEMBER` | 403 | 코드 발급/나가기/멤버 목록: 그룹 멤버가 아님 |
+| `OWNER_ONLY` | 403 | 코드 발급: 방장이 아닌 일반 멤버. 기존 코드는 그대로 유효합니다. |
 | `CONCURRENT_UPDATE` | 409 | 코드 발급: 같은 그룹의 코드를 다른 요청이 먼저 발급/재발급. 다시 시도 |
-
-> 초대 코드 발급을 방장만 할 수 있게 하는 검사는 로드맵 "권한" 이슈에서 추가합니다.
