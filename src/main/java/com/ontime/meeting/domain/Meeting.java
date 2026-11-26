@@ -73,9 +73,4 @@ public class Meeting extends BaseTimeEntity {
   public static Meeting oneTimeOf(MeetingGroup group) {
     return new Meeting(group, group.oneTimeMeetingAt());
   }
-
-  /** 아직 시작하지 않은 회차인지 본다. 약속 일시 정각부터는 시작한 것으로 본다. */
-  public boolean isUpcomingAt(Instant now) {
-    return status == MeetingStatus.SCHEDULED && meetingAt.isAfter(now);
-  }
 }

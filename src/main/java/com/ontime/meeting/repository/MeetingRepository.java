@@ -17,7 +17,11 @@ public interface MeetingRepository extends JpaRepository<Meeting, Long> {
   @Query("select m from Meeting m join fetch m.group where m.id = :id")
   Optional<Meeting> findWithGroupById(@Param("id") Long id);
 
-  /** 그룹의 아직 시작하지 않은 회차. ({@link Meeting#isUpcomingAt} 과 같은 조건) */
+  /**
+   * 그룹의 아직 시작하지 않은 회차. "시작 전" = SCHEDULED 이고 약속 일시가 {@code now} 보다 뒤 (정각부터는 시작).
+   *
+   * <p>{@link AttendanceRepository#deleteUpcoming} 의 서브쿼리와 반드시 같은 조건이어야 한다.
+   */
   @Query(
       """
       select m from Meeting m

@@ -23,7 +23,11 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Long> {
       """)
   List<AttendanceResponse> findResponsesByMeetingId(@Param("meetingId") Long meetingId);
 
-  /** 그룹을 나간 사용자의, 아직 시작하지 않은 회차의 참석 행을 지운다. 지난 회차 기록은 남는다. */
+  /**
+   * 그룹을 나간 사용자의, 아직 시작하지 않은 회차의 참석 행을 지운다. 시작한 회차의 기록은 남는다.
+   *
+   * <p>"시작 전" 조건은 {@link MeetingRepository#findUpcoming} 과 반드시 같아야 한다.
+   */
   @Modifying
   @Query(
       """
