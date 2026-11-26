@@ -60,7 +60,7 @@ public class MeetingGroupController {
     return meetingGroupService.get(userId, groupId);
   }
 
-  @Operation(summary = "그룹 이름 수정")
+  @Operation(summary = "그룹 이름 수정", description = "방장만 할 수 있습니다.")
   @PatchMapping("/{groupId}")
   public MeetingGroupResponse update(
       @Parameter(hidden = true) @LoginUser Long userId,
@@ -69,7 +69,7 @@ public class MeetingGroupController {
     return meetingGroupService.update(userId, groupId, request);
   }
 
-  @Operation(summary = "그룹 삭제", description = "soft delete. 삭제된 그룹은 조회되지 않습니다.")
+  @Operation(summary = "그룹 삭제", description = "방장만 할 수 있습니다. soft delete. 삭제된 그룹은 조회되지 않습니다.")
   @DeleteMapping("/{groupId}")
   public ResponseEntity<Void> delete(
       @Parameter(hidden = true) @LoginUser Long userId, @PathVariable Long groupId) {

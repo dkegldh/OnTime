@@ -34,7 +34,7 @@ public class GroupMemberController {
 
   private final GroupMemberService groupMemberService;
 
-  @Operation(summary = "초대 코드 발급", description = "다시 발급하면 이전 코드는 바로 무효가 됩니다. 유효기간 7일.")
+  @Operation(summary = "초대 코드 발급", description = "방장만 할 수 있습니다. 다시 발급하면 이전 코드는 바로 무효가 됩니다. 유효기간 7일.")
   @PostMapping("/{groupId}/invite-codes")
   public ResponseEntity<InviteCodeResponse> issueInviteCode(
       @Parameter(hidden = true) @LoginUser Long userId, @PathVariable Long groupId) {
