@@ -9,6 +9,8 @@ import com.ontime.group.dto.MeetingGroupSummary;
 import com.ontime.group.dto.UpdateMeetingGroupRequest;
 import com.ontime.group.repository.GroupMemberRepository;
 import com.ontime.group.repository.MeetingGroupRepository;
+import com.ontime.meeting.service.MeetingService;
+import com.ontime.user.domain.User;
 import com.ontime.user.service.UserService;
 import java.time.Clock;
 import java.time.Instant;
@@ -27,9 +29,10 @@ public class MeetingGroupService {
   private final GroupMemberRepository groupMemberRepository;
   private final GroupMembershipReader groupMembershipReader;
   private final UserService userService;
+  private final MeetingService meetingService;
   private final Clock clock;
 
-  /** 일회성 약속 그룹을 만들고, 만든 사람을 방장으로 등록한다. */
+  /** 일회성 약속 그룹을 만들고, 만든 사람을 방장으로 등록한다. 같은 트랜잭션에서 회차 1개와 방장의 참석 행도 만든다. */
   @Transactional
   public MeetingGroupResponse create(Long userId, CreateMeetingGroupRequest request) {
     MeetingGroup group =
@@ -42,8 +45,9 @@ public class MeetingGroupService {
             request.toFineRule(),
             Instant.now(clock));
     meetingGroupRepository.save(group);
-    GroupMember owner =
-        groupMemberRepository.save(GroupMember.owner(group, userService.getReference(userId)));
+    User user = userService.getReference(userId);
+    GroupMember owner = groupMemberRepository.save(GroupMember.owner(group, user));
+    meetingService.createOneTimeMeeting(group, user);
     return MeetingGroupResponse.of(owner);
   }
 

@@ -26,6 +26,7 @@ import com.ontime.group.dto.UpdateMeetingGroupRequest;
 import com.ontime.group.repository.GroupMemberRepository;
 import com.ontime.group.repository.MeetingGroupRepository;
 import com.ontime.user.domain.User;
+import com.ontime.meeting.service.MeetingService;
 import com.ontime.user.service.UserService;
 import java.time.Clock;
 import java.time.Instant;
@@ -54,6 +55,7 @@ class MeetingGroupServiceTest {
   @Mock private MeetingGroupRepository meetingGroupRepository;
   @Mock private GroupMemberRepository groupMemberRepository;
   @Mock private UserService userService;
+  @Mock private MeetingService meetingService;
 
   private MeetingGroupService service;
 
@@ -65,6 +67,7 @@ class MeetingGroupServiceTest {
             groupMemberRepository,
             new GroupMembershipReader(meetingGroupRepository, groupMemberRepository),
             userService,
+            meetingService,
             Clock.fixed(NOW, ZoneOffset.UTC));
   }
 

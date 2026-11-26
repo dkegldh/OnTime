@@ -15,6 +15,8 @@ import com.ontime.group.domain.Place;
 import com.ontime.group.repository.GroupMemberRepository;
 import com.ontime.group.repository.InviteCodeRepository;
 import com.ontime.group.repository.MeetingGroupRepository;
+import com.ontime.meeting.repository.AttendanceRepository;
+import com.ontime.meeting.repository.MeetingRepository;
 import com.ontime.support.MutableClock;
 import com.ontime.support.MutableClockConfig;
 import com.ontime.user.domain.User;
@@ -60,6 +62,8 @@ class GroupMemberConcurrencyTest {
   @Autowired private UserRepository userRepository;
   @Autowired private MeetingGroupRepository meetingGroupRepository;
   @Autowired private GroupMemberRepository groupMemberRepository;
+  @Autowired private MeetingRepository meetingRepository;
+  @Autowired private AttendanceRepository attendanceRepository;
   @Autowired private InviteCodeRepository inviteCodeRepository;
   @Autowired private MutableClock clock;
 
@@ -75,6 +79,8 @@ class GroupMemberConcurrencyTest {
 
   @AfterEach
   void tearDown() {
+    attendanceRepository.deleteAllInBatch();
+    meetingRepository.deleteAllInBatch();
     inviteCodeRepository.deleteAllInBatch();
     groupMemberRepository.deleteAllInBatch();
     meetingGroupRepository.deleteAllInBatch();

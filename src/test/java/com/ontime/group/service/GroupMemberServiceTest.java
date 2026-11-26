@@ -23,6 +23,7 @@ import com.ontime.group.repository.GroupMemberRepository;
 import com.ontime.group.repository.InviteCodeRepository;
 import com.ontime.group.repository.MeetingGroupRepository;
 import com.ontime.user.domain.User;
+import com.ontime.meeting.service.MeetingService;
 import com.ontime.user.service.UserService;
 import java.sql.SQLException;
 import java.time.Clock;
@@ -53,6 +54,7 @@ class GroupMemberServiceTest {
   @Mock private MeetingGroupRepository meetingGroupRepository;
   @Mock private InviteCodeGenerator inviteCodeGenerator;
   @Mock private UserService userService;
+  @Mock private MeetingService meetingService;
 
   private GroupMemberService service;
 
@@ -65,6 +67,7 @@ class GroupMemberServiceTest {
             new GroupMembershipReader(meetingGroupRepository, groupMemberRepository),
             inviteCodeGenerator,
             userService,
+            meetingService,
             Clock.fixed(NOW, ZoneOffset.UTC));
   }
 

@@ -9,6 +9,8 @@ import com.ontime.group.domain.MeetingGroup;
 import com.ontime.group.domain.Place;
 import com.ontime.group.repository.GroupMemberRepository;
 import com.ontime.group.repository.MeetingGroupRepository;
+import com.ontime.meeting.repository.AttendanceRepository;
+import com.ontime.meeting.repository.MeetingRepository;
 import com.ontime.support.MutableClock;
 import com.ontime.user.domain.User;
 import com.ontime.user.repository.UserRepository;
@@ -51,6 +53,8 @@ class JpaAuditingClockTest {
   @Autowired private UserRepository userRepository;
   @Autowired private MeetingGroupRepository meetingGroupRepository;
   @Autowired private GroupMemberRepository groupMemberRepository;
+  @Autowired private MeetingRepository meetingRepository;
+  @Autowired private AttendanceRepository attendanceRepository;
 
   @BeforeEach
   void setUp() {
@@ -59,6 +63,8 @@ class JpaAuditingClockTest {
 
   @AfterEach
   void tearDown() {
+    attendanceRepository.deleteAllInBatch();
+    meetingRepository.deleteAllInBatch();
     groupMemberRepository.deleteAllInBatch();
     meetingGroupRepository.deleteAllInBatch();
     userRepository.deleteAllInBatch();
