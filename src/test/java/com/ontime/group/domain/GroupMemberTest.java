@@ -47,4 +47,27 @@ class GroupMemberTest {
     // when & then
     assertThatCode(member::validateCanLeave).doesNotThrowAnyException();
   }
+
+  @Test
+  @DisplayName("방장은 방장 전용 기능 검사를 통과한다")
+  void validateOwner_owner_passes() {
+    // given
+    GroupMember owner = GroupMember.owner(group(), User.create("방장"));
+
+    // when & then
+    assertThatCode(owner::validateOwner).doesNotThrowAnyException();
+  }
+
+  @Test
+  @DisplayName("일반 멤버는 방장 전용 기능 검사에서 OWNER_ONLY로 거절된다")
+  void validateOwner_member_rejectedWithOwnerOnly() {
+    // given
+    GroupMember member = GroupMember.member(group(), User.create("멤버"));
+
+    // when & then
+    assertThatThrownBy(member::validateOwner)
+        .isInstanceOf(BusinessException.class)
+        .extracting("errorCode")
+        .isEqualTo(ErrorCode.OWNER_ONLY);
+  }
 }

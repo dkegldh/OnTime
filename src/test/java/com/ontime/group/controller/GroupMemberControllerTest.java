@@ -157,8 +157,8 @@ class GroupMemberControllerTest {
   // ---- 초대 코드 발급 ----
 
   @Test
-  @DisplayName("멤버가 초대 코드를 발급하면 201과 8자 코드, 7일 뒤 만료 시각을 준다")
-  void issue_member_returnsCodeExpiringInSevenDays() throws Exception {
+  @DisplayName("방장이 초대 코드를 발급하면 201과 8자 코드, 7일 뒤 만료 시각을 준다")
+  void issue_owner_returnsCodeExpiringInSevenDays() throws Exception {
     // when
     ResultActions result = issue(ownerId, groupId);
 
@@ -220,18 +220,51 @@ class GroupMemberControllerTest {
   }
 
   @Test
-  @DisplayName("방장이 아닌 일반 멤버도 초대 코드를 발급할 수 있고, 그 코드로 다른 사용자가 참여한다")
-  void issue_plainMember_returnsUsableCode() throws Exception {
+  @DisplayName("일반 멤버가 초대 코드를 발급하면 403 OWNER_ONLY로 거절되고, 방장이 발급한 코드가 그대로 유효하다")
+  void issue_plainMember_forbiddenAndOwnerCodeStillValid() throws Exception {
     // given: 손님이 방장 코드로 참여한 일반 멤버
-    join(guestId, issueCode(ownerId, groupId)).andExpect(status().isCreated());
+    String ownerCode = issueCode(ownerId, groupId);
+    join(guestId, ownerCode).andExpect(status().isCreated());
     Long thirdId = userRepository.save(User.create("셋째")).getId();
 
     // when
-    String memberIssuedCode = issueCode(guestId, groupId);
+    ResultActions result = issue(guestId, groupId);
 
     // then
-    join(thirdId, memberIssuedCode).andExpect(status().isCreated());
-    assertThat(isMember(thirdId, groupId)).isTrue();
+    result
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("OWNER_ONLY"))
+        .andExpect(jsonPath("$.message").value("방장만 할 수 있어요."));
+    assertThat(inviteCodeRepository.findByGroupId(groupId))
+        .get()
+        .satisfies(
+            c -> {
+              assertThat(c.getCode()).isEqualTo(ownerCode);
+              assertThat(c.getExpiresAt()).isEqualTo(EXPIRES_AT);
+            });
+    join(thirdId, ownerCode).andExpect(status().isCreated());
+  }
+
+  @Test
+  @DisplayName("삭제된 그룹에 일반 멤버가 초대 코드를 발급하면 OWNER_ONLY가 아니라 404 GROUP_NOT_FOUND이고 코드가 그대로다")
+  void issue_plainMemberOnDeletedGroup_notFoundBeforeOwnerCheck() throws Exception {
+    // given: 손님이 일반 멤버로 참여한 뒤 방장이 그룹을 삭제
+    String ownerCode = issueCode(ownerId, groupId);
+    join(guestId, ownerCode).andExpect(status().isCreated());
+    mockMvc
+        .perform(delete(BASE + "/" + groupId).header(USER_HEADER, ownerId.toString()))
+        .andExpect(status().isNoContent());
+
+    // when
+    ResultActions result = issue(guestId, groupId);
+
+    // then
+    result
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("GROUP_NOT_FOUND"));
+    assertThat(inviteCodeRepository.findByGroupId(groupId))
+        .get()
+        .satisfies(c -> assertThat(c.getCode()).isEqualTo(ownerCode));
   }
 
   // ---- 참여 ----

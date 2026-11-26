@@ -57,15 +57,20 @@ public class MeetingGroupService {
     return MeetingGroupResponse.of(groupMembershipReader.getMembership(userId, groupId));
   }
 
+  /** 그룹 이름을 바꾼다. 방장만 할 수 있다. */
   @Transactional
   public MeetingGroupResponse update(Long userId, Long groupId, UpdateMeetingGroupRequest request) {
     GroupMember membership = groupMembershipReader.getMembership(userId, groupId);
+    membership.validateOwner();
     membership.getGroup().rename(request.name());
     return MeetingGroupResponse.of(membership);
   }
 
+  /** 그룹을 soft delete 한다. 방장만 할 수 있다. */
   @Transactional
   public void delete(Long userId, Long groupId) {
-    groupMembershipReader.getMembership(userId, groupId).getGroup().delete(Instant.now(clock));
+    GroupMember membership = groupMembershipReader.getMembership(userId, groupId);
+    membership.validateOwner();
+    membership.getGroup().delete(Instant.now(clock));
   }
 }
