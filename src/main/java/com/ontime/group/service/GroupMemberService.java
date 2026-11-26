@@ -11,6 +11,7 @@ import com.ontime.group.dto.InviteCodeResponse;
 import com.ontime.group.dto.MeetingGroupResponse;
 import com.ontime.group.repository.GroupMemberRepository;
 import com.ontime.group.repository.InviteCodeRepository;
+import com.ontime.meeting.service.MeetingService;
 import com.ontime.user.service.UserService;
 import java.time.Clock;
 import java.time.Instant;
@@ -36,6 +37,7 @@ public class GroupMemberService {
   private final GroupMembershipReader groupMembershipReader;
   private final InviteCodeGenerator inviteCodeGenerator;
   private final UserService userService;
+  private final MeetingService meetingService;
   private final Clock clock;
 
   /** 초대 코드를 발급한다. 방장만 할 수 있다. 이미 있으면 코드와 만료 시각을 새로 바꿔 이전 코드는 무효가 된다. */
@@ -84,7 +86,8 @@ public class GroupMemberService {
     if (group.getDeletedAt() != null) {
       throw new BusinessException(ErrorCode.INVALID_INVITE_CODE);
     }
-    inviteCode.validateUsableAt(Instant.now(clock));
+    Instant now = Instant.now(clock);
+    inviteCode.validateUsableAt(now);
     if (groupMemberRepository.findByGroupIdAndUserId(group.getId(), userId).isPresent()) {
       throw new BusinessException(ErrorCode.ALREADY_MEMBER);
     }
@@ -97,15 +100,21 @@ public class GroupMemberService {
       }
       throw e;
     }
+    meetingService.addToUpcomingMeetings(group, member.getUser(), now);
     return MeetingGroupResponse.of(member);
   }
 
-  /** 그룹을 나간다. 멤버 행을 지우므로 다시 참여할 수 있다. 방장은 나갈 수 없다. */
+  /**
+   * 그룹을 나간다. 멤버 행을 지우므로 다시 참여할 수 있다. 방장은 나갈 수 없다.
+   *
+   * <p>아직 시작하지 않은 회차의 참석 행도 지운다. 이미 시작한 회차의 기록은 남는다.
+   */
   @Transactional
   public void leave(Long userId, Long groupId) {
     GroupMember membership = groupMembershipReader.getMembership(userId, groupId);
     membership.validateCanLeave();
     groupMemberRepository.delete(membership);
+    meetingService.removeFromUpcomingMeetings(groupId, userId, Instant.now(clock));
   }
 
   public CursorResponse<GroupMemberSummary> listMembers(

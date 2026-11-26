@@ -7,7 +7,7 @@
 - 진행 상황: [`docs/ROADMAP.md`](docs/ROADMAP.md)
 
 > 이 문서는 설계의 기준입니다. 기능을 추가하는 이슈마다 해당 범위의 ERD와 API 명세를 이 문서에 더합니다.
-> 아직 구현 범위에 들어오지 않은 테이블(회차, 참석, 벌금 원장 등)은 해당 이슈에서 추가합니다.
+> 아직 구현 범위에 들어오지 않은 테이블(벌금 원장 등)은 해당 이슈에서 추가합니다.
 
 ## 기술 스택
 
@@ -34,6 +34,9 @@ erDiagram
     users ||--o{ group_members : "참여"
     meeting_groups ||--o{ group_members : "멤버"
     meeting_groups ||--o| invite_codes : "초대"
+    meeting_groups ||--o{ meetings : "회차"
+    meetings ||--o{ attendances : "참석"
+    users ||--o{ attendances : "참석"
 
     users {
         BIGINT id PK
@@ -79,6 +82,34 @@ erDiagram
         TIMESTAMPTZ created_at
         TIMESTAMPTZ updated_at
     }
+    meetings {
+        BIGINT id PK
+        BIGINT group_id FK
+        TIMESTAMPTZ meeting_at "약속 일시"
+        VARCHAR status "SCHEDULED | ONGOING | CLOSED"
+        VARCHAR place_name "스냅샷"
+        DOUBLE latitude "스냅샷"
+        DOUBLE longitude "스냅샷"
+        INT grace_minutes "스냅샷"
+        INT absent_after_minutes "스냅샷"
+        INT arrival_radius_m "스냅샷"
+        VARCHAR fine_type "스냅샷"
+        BIGINT fine_amount "스냅샷"
+        VARCHAR penalty_text "스냅샷"
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+    attendances {
+        BIGINT id PK
+        BIGINT meeting_id FK
+        BIGINT user_id FK
+        VARCHAR status "READY | MOVING | ARRIVED | LATE | LATE_ARRIVED | ABSENT | EXCUSED"
+        TIMESTAMPTZ departed_at
+        TIMESTAMPTZ arrived_at
+        BIGINT version "낙관적 락"
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
 ```
 
 ### meeting_groups
@@ -100,7 +131,7 @@ erDiagram
 - `(user_id, group_id)` 인덱스: 내 그룹 목록 조회용
 - 그룹을 만든 사용자가 `OWNER` 로 등록됩니다. 초대 코드로 참여한 사용자는 `MEMBER` 입니다.
 - 같은 사용자가 동시에 참여를 요청해도 `(group_id, user_id)` 유니크 제약이 중복 행을 막고, 그 위반은 `409 ALREADY_MEMBER` 로 응답합니다.
-- 나가기는 행을 지웁니다(다시 참여 가능). 벌금 원장과 참석 기록은 멤버 행이 아니라 사용자와 그룹(회차)을 참조할 예정이라 이력은 남습니다.
+- 나가기는 행을 지웁니다(다시 참여 가능). 참석 기록과 벌금 원장은 멤버 행이 아니라 사용자와 회차를 참조하므로 이미 시작한 회차의 이력은 남습니다. (아직 시작하지 않은 회차의 참석 행은 지웁니다. `attendances` 참고)
 - 방장은 나갈 수 없습니다. (방장 위임은 로드맵에 없음)
 
 ### invite_codes
@@ -111,6 +142,24 @@ erDiagram
 - 다시 발급하면 같은 행의 `code` 와 `expires_at` 을 바꿉니다. 이전 코드는 바로 무효가 됩니다.
 - `version`: 동시에 재발급하면 나중 쪽이 `409 CONCURRENT_UPDATE` 로 실패합니다. (받은 코드가 이미 무효인 상황 방지)
 - 같은 그룹의 첫 발급이 동시에 오거나, 다른 그룹과 동시에 같은 코드를 만들면 유니크 제약이 막고 `409 CONCURRENT_UPDATE` 로 응답합니다.
+
+### meetings
+
+- 약속 한 번(회차)입니다. 일회성 그룹은 생성할 때 같은 트랜잭션에서 회차 1개를 만듭니다. 정기 모임의 회차 일괄 생성은 Phase 3에서 추가합니다.
+- `meeting_at`: 그룹의 `start_date` + `meeting_time` (KST)을 UTC 시각으로 바꾼 값입니다. 지각 판정의 기준입니다.
+- 장소, 유예/결석/반경, 벌금 규칙은 그룹 값을 **복사**해 둡니다(스냅샷). 그룹 규칙 수정(Phase 5)은 SCHEDULED 회차에만 반영합니다.
+- `status`: 지금은 `SCHEDULED` 만 만듭니다. `ONGOING`, `CLOSED` 전이는 Phase 3 스케줄러에서 다룹니다.
+- **시작 전 회차**: `status = SCHEDULED` 이고 `meeting_at` 이 서버 시각보다 뒤인 회차. 약속 시각 정각부터는 시작한 회차입니다.
+- `(group_id, id)` 인덱스: 그룹의 회차 목록 조회용
+- 그룹을 삭제(soft delete)해도 회차 행은 남지만, 조회에서는 없는 회차로 취급합니다.
+
+### attendances
+
+- 회차별 멤버 참석 상태. `(meeting_id, user_id)` 유니크
+- 생성: 그룹을 만들면 방장, 초대 코드로 참여하면 그 멤버를 **시작 전 회차**에 `READY` 로 등록합니다. 이미 시작한 회차에는 등록하지 않습니다.
+- 나가기: **시작 전 회차**의 참석 행을 지웁니다. 남겨 두면 나간 멤버가 상세에 `READY` 로 보이고, 이후 지각 스케줄러가 벌금을 매기게 됩니다. 이미 시작한 회차의 기록은 남습니다.
+- `version`: 도착 버튼과 지각 스케줄러가 같은 행을 동시에 바꿀 수 있어 낙관적 락을 씁니다.
+- 상태 전이(출발, 도착, 지각)는 Phase 2의 다음 이슈들에서 추가합니다.
 
 ## API 명세
 
@@ -272,3 +321,72 @@ erDiagram
 | `NOT_GROUP_MEMBER` | 403 | 코드 발급/나가기/멤버 목록: 그룹 멤버가 아님 |
 | `OWNER_ONLY` | 403 | 코드 발급: 방장이 아닌 일반 멤버. 기존 코드는 그대로 유효합니다. |
 | `CONCURRENT_UPDATE` | 409 | 코드 발급: 같은 그룹의 코드를 다른 요청이 먼저 발급/재발급. 다시 시도 |
+
+### 회차
+
+| 메서드 | 경로 | 설명 | 성공 |
+| --- | --- | --- | --- |
+| `GET` | `/api/v1/meeting-groups/{groupId}/meetings?cursor=&size=` | 그룹의 회차 목록 (id 오름차순), 내 참석 상태 포함 | `200` |
+| `GET` | `/api/v1/meetings/{meetingId}` | 회차 상세와 멤버별 참석 상태 | `200` |
+
+#### 목록 응답
+
+`size` 는 1~50, 기본 20입니다. `myStatus` 는 요청자의 참석 상태이고, 참석 행이 없으면(회차가 시작한 뒤 참여) `null` 입니다.
+
+```json
+{
+  "items": [
+    {
+      "id": 7,
+      "meetingAt": "2026-12-04T10:00:00Z",
+      "status": "SCHEDULED",
+      "placeName": "강남역 11번 출구",
+      "myStatus": "READY"
+    }
+  ],
+  "nextCursor": null,
+  "hasNext": false
+}
+```
+
+#### 상세 응답
+
+장소와 규칙은 회차에 복사된 값입니다. `attendances` 는 회차에 등록된 순서이고, 페이지네이션하지 않습니다(그룹 인원이 적음).
+
+```json
+{
+  "id": 7,
+  "groupId": 1,
+  "groupName": "금요일 저녁 모임",
+  "status": "SCHEDULED",
+  "meetingAt": "2026-12-04T10:00:00Z",
+  "placeName": "강남역 11번 출구",
+  "latitude": 37.4979,
+  "longitude": 127.0276,
+  "graceMinutes": 5,
+  "absentAfterMinutes": 60,
+  "arrivalRadiusM": 200,
+  "fineType": "MONEY",
+  "fineAmount": 3000,
+  "penaltyText": null,
+  "myStatus": "READY",
+  "attendances": [
+    {
+      "userId": 10,
+      "nickname": "방장",
+      "profileImageUrl": null,
+      "status": "READY",
+      "departedAt": null,
+      "arrivedAt": null
+    }
+  ]
+}
+```
+
+#### 에러
+
+| 코드 | 상태 | 언제 |
+| --- | --- | --- |
+| `GROUP_NOT_FOUND` | 404 | 목록: 없거나 삭제된 그룹 |
+| `MEETING_NOT_FOUND` | 404 | 상세: 없는 회차, 삭제된 그룹의 회차 |
+| `NOT_GROUP_MEMBER` | 403 | 목록/상세: 그룹 멤버가 아님 (나간 멤버 포함) |

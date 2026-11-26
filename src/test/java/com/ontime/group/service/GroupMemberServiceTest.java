@@ -22,6 +22,7 @@ import com.ontime.group.dto.InviteCodeResponse;
 import com.ontime.group.repository.GroupMemberRepository;
 import com.ontime.group.repository.InviteCodeRepository;
 import com.ontime.group.repository.MeetingGroupRepository;
+import com.ontime.meeting.service.MeetingService;
 import com.ontime.user.domain.User;
 import com.ontime.user.service.UserService;
 import java.sql.SQLException;
@@ -36,6 +37,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -53,6 +55,7 @@ class GroupMemberServiceTest {
   @Mock private MeetingGroupRepository meetingGroupRepository;
   @Mock private InviteCodeGenerator inviteCodeGenerator;
   @Mock private UserService userService;
+  @Mock private MeetingService meetingService;
 
   private GroupMemberService service;
 
@@ -65,6 +68,7 @@ class GroupMemberServiceTest {
             new GroupMembershipReader(meetingGroupRepository, groupMemberRepository),
             inviteCodeGenerator,
             userService,
+            meetingService,
             Clock.fixed(NOW, ZoneOffset.UTC));
   }
 
@@ -121,6 +125,25 @@ class GroupMemberServiceTest {
         .isInstanceOf(BusinessException.class)
         .extracting("errorCode")
         .isEqualTo(ErrorCode.ALREADY_MEMBER);
+    verify(meetingService, never()).addToUpcomingMeetings(any(), any(), any());
+  }
+
+  @Test
+  @DisplayName("참여하면 서버 시각 기준으로 시작 전 회차에 참석 행을 만들도록 회차 서비스에 넘긴다")
+  void join_success_addsToUpcomingMeetingsAtServerTime() {
+    // given
+    givenJoinableCode();
+    given(groupMemberRepository.saveAndFlush(any(GroupMember.class)))
+        .willAnswer(i -> i.getArgument(0));
+
+    // when
+    service.join(USER_ID, "ABCD2345");
+
+    // then
+    ArgumentCaptor<GroupMember> member = ArgumentCaptor.forClass(GroupMember.class);
+    verify(groupMemberRepository).saveAndFlush(member.capture());
+    verify(meetingService)
+        .addToUpcomingMeetings(member.getValue().getGroup(), member.getValue().getUser(), NOW);
   }
 
   @Test

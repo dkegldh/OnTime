@@ -15,6 +15,9 @@ import com.ontime.group.domain.Place;
 import com.ontime.group.repository.GroupMemberRepository;
 import com.ontime.group.repository.InviteCodeRepository;
 import com.ontime.group.repository.MeetingGroupRepository;
+import com.ontime.meeting.domain.Meeting;
+import com.ontime.meeting.repository.AttendanceRepository;
+import com.ontime.meeting.repository.MeetingRepository;
 import com.ontime.support.MutableClock;
 import com.ontime.support.MutableClockConfig;
 import com.ontime.user.domain.User;
@@ -60,6 +63,8 @@ class GroupMemberConcurrencyTest {
   @Autowired private UserRepository userRepository;
   @Autowired private MeetingGroupRepository meetingGroupRepository;
   @Autowired private GroupMemberRepository groupMemberRepository;
+  @Autowired private MeetingRepository meetingRepository;
+  @Autowired private AttendanceRepository attendanceRepository;
   @Autowired private InviteCodeRepository inviteCodeRepository;
   @Autowired private MutableClock clock;
 
@@ -75,6 +80,8 @@ class GroupMemberConcurrencyTest {
 
   @AfterEach
   void tearDown() {
+    attendanceRepository.deleteAllInBatch();
+    meetingRepository.deleteAllInBatch();
     inviteCodeRepository.deleteAllInBatch();
     groupMemberRepository.deleteAllInBatch();
     meetingGroupRepository.deleteAllInBatch();
@@ -144,9 +151,10 @@ class GroupMemberConcurrencyTest {
   }
 
   @Test
-  @DisplayName("같은 사용자가 동시에 10번 참여하면 1번만 성공하고 나머지는 ALREADY_MEMBER, 멤버 행은 1개다")
+  @DisplayName("같은 사용자가 동시에 10번 참여하면 1번만 성공하고 나머지는 ALREADY_MEMBER, 멤버 행과 참석 행은 1개다")
   void join_sameUserConcurrently_onlyOneMembership() throws Exception {
-    // given
+    // given: 시작 전 회차가 있어 참여할 때 참석 행도 만든다
+    meetingRepository.save(Meeting.oneTimeOf(group));
     Long guestId = userRepository.save(User.create("손님")).getId();
     String code = groupMemberService.issueInviteCode(owner.getId(), group.getId()).code();
 
@@ -160,6 +168,9 @@ class GroupMemberConcurrencyTest {
         .containsEntry(ErrorCode.ALREADY_MEMBER, THREADS - 1);
     assertThat(groupMemberRepository.findByGroupIdAndUserId(group.getId(), guestId)).isPresent();
     assertThat(groupMemberRepository.count()).isEqualTo(2);
+    assertThat(attendanceRepository.findAll())
+        .filteredOn(a -> a.getUser().getId().equals(guestId))
+        .hasSize(1);
   }
 
   @Test

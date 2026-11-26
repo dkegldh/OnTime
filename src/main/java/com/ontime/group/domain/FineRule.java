@@ -51,4 +51,9 @@ public class FineRule {
     }
     return new FineRule(FineType.TEXT, 0L, penaltyText);
   }
+
+  /** 회차 스냅샷용 복사본. */
+  public FineRule copy() {
+    return new FineRule(fineType, fineAmount, penaltyText);
+  }
 }

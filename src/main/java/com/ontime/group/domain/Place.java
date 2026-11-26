@@ -32,4 +32,9 @@ public class Place {
   public static Place of(String name, double latitude, double longitude) {
     return new Place(name, latitude, longitude);
   }
+
+  /** 회차 스냅샷용 복사본. 임베디드 값을 두 엔티티가 같은 인스턴스로 공유하지 않도록 새로 만든다. */
+  public Place copy() {
+    return new Place(name, latitude, longitude);
+  }
 }

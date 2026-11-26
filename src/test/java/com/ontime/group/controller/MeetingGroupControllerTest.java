@@ -20,6 +20,8 @@ import com.ontime.group.domain.GroupRole;
 import com.ontime.group.domain.MeetingGroup;
 import com.ontime.group.repository.GroupMemberRepository;
 import com.ontime.group.repository.MeetingGroupRepository;
+import com.ontime.meeting.repository.AttendanceRepository;
+import com.ontime.meeting.repository.MeetingRepository;
 import com.ontime.user.domain.User;
 import com.ontime.user.repository.UserRepository;
 import java.time.Clock;
@@ -76,6 +78,8 @@ class MeetingGroupControllerTest {
   @Autowired private UserRepository userRepository;
   @Autowired private MeetingGroupRepository meetingGroupRepository;
   @Autowired private GroupMemberRepository groupMemberRepository;
+  @Autowired private MeetingRepository meetingRepository;
+  @Autowired private AttendanceRepository attendanceRepository;
   @Autowired private TransactionTemplate transactionTemplate;
 
   private Long ownerId;
@@ -89,6 +93,8 @@ class MeetingGroupControllerTest {
 
   @AfterEach
   void tearDown() {
+    attendanceRepository.deleteAllInBatch();
+    meetingRepository.deleteAllInBatch();
     groupMemberRepository.deleteAllInBatch();
     meetingGroupRepository.deleteAllInBatch();
     userRepository.deleteAllInBatch();
