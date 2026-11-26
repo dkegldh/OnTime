@@ -67,6 +67,13 @@ public class GroupMember extends BaseTimeEntity {
     return new GroupMember(group, user, GroupRole.MEMBER);
   }
 
+  /** 방장 전용 기능(그룹 수정, 삭제, 초대 코드 발급) 앞에서 부른다. 일반 멤버면 {@code OWNER_ONLY}. */
+  public void validateOwner() {
+    if (role != GroupRole.OWNER) {
+      throw new BusinessException(ErrorCode.OWNER_ONLY);
+    }
+  }
+
   /** 방장은 나갈 수 없다. 방장이 없는 그룹이 생기지 않도록, 그룹 삭제를 안내한다. */
   public void validateCanLeave() {
     if (role == GroupRole.OWNER) {

@@ -38,10 +38,12 @@ public class GroupMemberService {
   private final UserService userService;
   private final Clock clock;
 
-  /** 초대 코드를 발급한다. 이미 있으면 코드와 만료 시각을 새로 바꿔 이전 코드는 무효가 된다. */
+  /** 초대 코드를 발급한다. 방장만 할 수 있다. 이미 있으면 코드와 만료 시각을 새로 바꿔 이전 코드는 무효가 된다. */
   @Transactional
   public InviteCodeResponse issueInviteCode(Long userId, Long groupId) {
-    MeetingGroup group = groupMembershipReader.getMembership(userId, groupId).getGroup();
+    GroupMember membership = groupMembershipReader.getMembership(userId, groupId);
+    membership.validateOwner();
+    MeetingGroup group = membership.getGroup();
     String code = newUniqueCode();
     Instant now = Instant.now(clock);
     try {
