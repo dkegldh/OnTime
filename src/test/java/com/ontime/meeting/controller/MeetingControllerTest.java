@@ -326,6 +326,8 @@ class MeetingControllerTest {
     // given: 손님(나중에 만든 사용자)의 그룹에 방장(먼저 만든 사용자)이 참여
     Long guestGroupId = createGroup(guestId);
     join(ownerId, issueCode(guestId, guestGroupId));
+    // 먼저 등록된 행을 한 번 UPDATE 해 저장 위치를 뒤로 민다. order by 가 없으면 물리 순서(방장, 손님)로 나온다.
+    jdbcTemplate.update("update attendances set status = status where user_id = ?", guestId);
 
     // when
     ResultActions result = detail(guestId, meetingIdOf(guestGroupId));
@@ -342,15 +344,17 @@ class MeetingControllerTest {
   void detail_groupRulesChangedAfterCreation_returnsMeetingSnapshot() throws Exception {
     // given: 그룹 규칙 수정 API는 Phase 5라 SQL로 바꾼다
     Long meetingId = meetingIdOf(groupId);
-    jdbcTemplate.update(
-        """
-        update meeting_groups
-        set place_name = '바뀐 장소', latitude = 35.0, longitude = 129.0,
-            grace_minutes = 10, absent_after_minutes = 90, arrival_radius_m = 500,
-            fine_type = 'TEXT', fine_amount = 0, penalty_text = '커피 사기'
-        where id = ?
-        """,
-        groupId);
+    int updated =
+        jdbcTemplate.update(
+            """
+            update meeting_groups
+            set place_name = '바뀐 장소', latitude = 35.0, longitude = 129.0,
+                grace_minutes = 10, absent_after_minutes = 90, arrival_radius_m = 500,
+                fine_type = 'TEXT', fine_amount = 0, penalty_text = '커피 사기'
+            where id = ?
+            """,
+            groupId);
+    assertThat(updated).isEqualTo(1);
 
     // when
     ResultActions result = detail(ownerId, meetingId);
