@@ -86,6 +86,13 @@ class GroupMemberServiceTest {
         .willReturn(Optional.of(GroupMember.owner(group, User.create("방장"))));
   }
 
+  private void givenPlainMember(MeetingGroup group) {
+    given(meetingGroupRepository.findByIdAndDeletedAtIsNull(GROUP_ID))
+        .willReturn(Optional.of(group));
+    given(groupMemberRepository.findByGroupIdAndUserId(GROUP_ID, USER_ID))
+        .willReturn(Optional.of(GroupMember.member(group, User.create("멤버"))));
+  }
+
   private static DataIntegrityViolationException violationOf(String constraintName) {
     return new DataIntegrityViolationException(
         "중복",
@@ -180,6 +187,22 @@ class GroupMemberServiceTest {
     assertThat(existing.getCode()).isEqualTo("NEWC6789");
     assertThat(existing.getExpiresAt()).isEqualTo(Instant.parse("2026-12-02T03:00:00Z"));
     assertThat(response.code()).isEqualTo("NEWC6789");
+    verify(inviteCodeRepository, never()).save(any());
+  }
+
+  @Test
+  @DisplayName("일반 멤버가 초대 코드를 발급하면 OWNER_ONLY로 거절되고 코드를 만들지도 저장하지도 않는다")
+  void issueInviteCode_plainMember_rejectedWithOwnerOnlyBeforeGenerating() {
+    // given
+    givenPlainMember(group());
+
+    // when & then
+    assertThatThrownBy(() -> service.issueInviteCode(USER_ID, GROUP_ID))
+        .isInstanceOf(BusinessException.class)
+        .extracting("errorCode")
+        .isEqualTo(ErrorCode.OWNER_ONLY);
+    verify(inviteCodeGenerator, never()).generate();
+    verify(inviteCodeRepository, never()).findByGroupId(any());
     verify(inviteCodeRepository, never()).save(any());
   }
 

@@ -92,6 +92,13 @@ class MeetingGroupServiceTest {
         .willReturn(Optional.of(GroupMember.owner(group, User.create("방장"))));
   }
 
+  private void givenPlainMember(MeetingGroup group) {
+    given(meetingGroupRepository.findByIdAndDeletedAtIsNull(GROUP_ID))
+        .willReturn(Optional.of(group));
+    given(groupMemberRepository.findByGroupIdAndUserId(GROUP_ID, USER_ID))
+        .willReturn(Optional.of(GroupMember.member(group, User.create("멤버"))));
+  }
+
   private void givenNonMember(MeetingGroup group) {
     given(meetingGroupRepository.findByIdAndDeletedAtIsNull(GROUP_ID))
         .willReturn(Optional.of(group));
@@ -217,8 +224,8 @@ class MeetingGroupServiceTest {
   }
 
   @Test
-  @DisplayName("멤버가 이름을 바꾸면 그룹 이름이 바뀐다")
-  void update_member_renamesGroup() {
+  @DisplayName("방장이 이름을 바꾸면 그룹 이름이 바뀐다")
+  void update_owner_renamesGroup() {
     // given
     MeetingGroup group = group();
     givenMember(group);
@@ -249,8 +256,24 @@ class MeetingGroupServiceTest {
   }
 
   @Test
-  @DisplayName("멤버가 삭제하면 서버 시각으로 삭제 시각이 기록된다")
-  void delete_member_recordsServerTimeAsDeletedAt() {
+  @DisplayName("일반 멤버가 이름을 바꾸면 OWNER_ONLY로 거절되고 이름이 그대로다")
+  void update_plainMember_rejectedWithOwnerOnlyAndNameUnchanged() {
+    // given
+    MeetingGroup group = group();
+    givenPlainMember(group);
+    UpdateMeetingGroupRequest request = new UpdateMeetingGroupRequest("토요일 모임");
+
+    // when & then
+    assertThatThrownBy(() -> service.update(USER_ID, GROUP_ID, request))
+        .isInstanceOf(BusinessException.class)
+        .extracting("errorCode")
+        .isEqualTo(ErrorCode.OWNER_ONLY);
+    assertThat(group.getName()).isEqualTo("금요일 모임");
+  }
+
+  @Test
+  @DisplayName("방장이 삭제하면 서버 시각으로 삭제 시각이 기록된다")
+  void delete_owner_recordsServerTimeAsDeletedAt() {
     // given
     MeetingGroup group = group();
     givenMember(group);
@@ -274,6 +297,21 @@ class MeetingGroupServiceTest {
         .isInstanceOf(BusinessException.class)
         .extracting("errorCode")
         .isEqualTo(ErrorCode.NOT_GROUP_MEMBER);
+    assertThat(group.getDeletedAt()).isNull();
+  }
+
+  @Test
+  @DisplayName("일반 멤버가 삭제하면 OWNER_ONLY로 거절되고 그룹이 삭제되지 않는다")
+  void delete_plainMember_rejectedWithOwnerOnlyAndNotDeleted() {
+    // given
+    MeetingGroup group = group();
+    givenPlainMember(group);
+
+    // when & then
+    assertThatThrownBy(() -> service.delete(USER_ID, GROUP_ID))
+        .isInstanceOf(BusinessException.class)
+        .extracting("errorCode")
+        .isEqualTo(ErrorCode.OWNER_ONLY);
     assertThat(group.getDeletedAt()).isNull();
   }
 }

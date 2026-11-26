@@ -166,6 +166,16 @@ class MeetingGroupControllerTest {
     return mockMvc.perform(delete(BASE + "/" + groupId).header(USER_HEADER, userId.toString()));
   }
 
+  /** 초대 코드 흐름 없이 사용자를 일반 멤버로 바로 넣는다. (참여 API는 GroupMemberControllerTest 에서 검증) */
+  private void addPlainMember(Long groupId, Long userId) {
+    transactionTemplate.executeWithoutResult(
+        s ->
+            groupMemberRepository.save(
+                GroupMember.member(
+                    meetingGroupRepository.getReferenceById(groupId),
+                    userRepository.getReferenceById(userId))));
+  }
+
   private MeetingGroup findGroup(Long groupId) {
     return meetingGroupRepository.findById(groupId).orElseThrow();
   }
@@ -555,8 +565,8 @@ class MeetingGroupControllerTest {
   // ---- 수정 ----
 
   @Test
-  @DisplayName("멤버가 이름을 30자로 바꾸면 DB의 이름이 바뀐다")
-  void update_memberWithMaxLengthName_renamesInDb() throws Exception {
+  @DisplayName("방장이 이름을 30자로 바꾸면 DB의 이름이 바뀐다")
+  void update_ownerWithMaxLengthName_renamesInDb() throws Exception {
     // given
     Long groupId = createGroup(ownerId);
     String name30 = "가".repeat(30);
@@ -583,6 +593,41 @@ class MeetingGroupControllerTest {
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("NOT_GROUP_MEMBER"));
     assertThat(findGroup(groupId).getName()).isEqualTo("금요일 모임");
+  }
+
+  @Test
+  @DisplayName("일반 멤버가 이름을 바꾸면 403 OWNER_ONLY로 거절되고 이름이 그대로다")
+  void update_plainMember_forbiddenWithOwnerOnlyAndUnchanged() throws Exception {
+    // given
+    Long groupId = createGroup(ownerId);
+    addPlainMember(groupId, otherId);
+
+    // when
+    ResultActions result = rename(otherId, groupId, "토요일 모임");
+
+    // then
+    result
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("OWNER_ONLY"))
+        .andExpect(jsonPath("$.message").value("방장만 할 수 있어요."));
+    assertThat(findGroup(groupId).getName()).isEqualTo("금요일 모임");
+  }
+
+  @Test
+  @DisplayName("일반 멤버도 그룹 상세는 볼 수 있고 myRole은 MEMBER다")
+  void get_plainMember_returnsDetailAsMember() throws Exception {
+    // given
+    Long groupId = createGroup(ownerId);
+    addPlainMember(groupId, otherId);
+
+    // when
+    ResultActions result = getDetail(otherId, groupId);
+
+    // then
+    result
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.id").value(groupId))
+        .andExpect(jsonPath("$.myRole").value("MEMBER"));
   }
 
   @Test
@@ -626,8 +671,8 @@ class MeetingGroupControllerTest {
   // ---- 삭제 ----
 
   @Test
-  @DisplayName("삭제하면 204를 주고, 행은 남은 채 서버 시각이 삭제 시각으로 기록된다")
-  void delete_member_softDeletesWithServerTime() throws Exception {
+  @DisplayName("방장이 삭제하면 204를 주고, 행은 남은 채 서버 시각이 삭제 시각으로 기록된다")
+  void delete_owner_softDeletesWithServerTime() throws Exception {
     // given
     Long groupId = createGroup(ownerId);
 
@@ -669,6 +714,24 @@ class MeetingGroupControllerTest {
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("NOT_GROUP_MEMBER"));
     assertThat(findGroup(groupId).getDeletedAt()).isNull();
+  }
+
+  @Test
+  @DisplayName("일반 멤버가 삭제하면 403 OWNER_ONLY로 거절되고 그룹이 삭제되지 않는다")
+  void delete_plainMember_forbiddenWithOwnerOnlyAndNotDeleted() throws Exception {
+    // given
+    Long groupId = createGroup(ownerId);
+    addPlainMember(groupId, otherId);
+
+    // when
+    ResultActions result = deleteGroup(otherId, groupId);
+
+    // then
+    result
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("OWNER_ONLY"));
+    assertThat(findGroup(groupId).getDeletedAt()).isNull();
+    getDetail(ownerId, groupId).andExpect(status().isOk());
   }
 
   // ---- 동시 수정 (낙관적 락) ----
