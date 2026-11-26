@@ -233,7 +233,8 @@ class GroupMemberControllerTest {
     // then
     result
         .andExpect(status().isForbidden())
-        .andExpect(jsonPath("$.code").value("OWNER_ONLY"));
+        .andExpect(jsonPath("$.code").value("OWNER_ONLY"))
+        .andExpect(jsonPath("$.message").value("방장만 할 수 있어요."));
     assertThat(inviteCodeRepository.findByGroupId(groupId))
         .get()
         .satisfies(
@@ -242,6 +243,28 @@ class GroupMemberControllerTest {
               assertThat(c.getExpiresAt()).isEqualTo(EXPIRES_AT);
             });
     join(thirdId, ownerCode).andExpect(status().isCreated());
+  }
+
+  @Test
+  @DisplayName("삭제된 그룹에 일반 멤버가 초대 코드를 발급하면 OWNER_ONLY가 아니라 404 GROUP_NOT_FOUND이고 코드가 그대로다")
+  void issue_plainMemberOnDeletedGroup_notFoundBeforeOwnerCheck() throws Exception {
+    // given: 손님이 일반 멤버로 참여한 뒤 방장이 그룹을 삭제
+    String ownerCode = issueCode(ownerId, groupId);
+    join(guestId, ownerCode).andExpect(status().isCreated());
+    mockMvc
+        .perform(delete(BASE + "/" + groupId).header(USER_HEADER, ownerId.toString()))
+        .andExpect(status().isNoContent());
+
+    // when
+    ResultActions result = issue(guestId, groupId);
+
+    // then
+    result
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("GROUP_NOT_FOUND"));
+    assertThat(inviteCodeRepository.findByGroupId(groupId))
+        .get()
+        .satisfies(c -> assertThat(c.getCode()).isEqualTo(ownerCode));
   }
 
   // ---- 참여 ----

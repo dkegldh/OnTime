@@ -79,7 +79,7 @@ class GroupMemberServiceTest {
         NOW);
   }
 
-  private void givenMember(MeetingGroup group) {
+  private void givenOwner(MeetingGroup group) {
     given(meetingGroupRepository.findByIdAndDeletedAtIsNull(GROUP_ID))
         .willReturn(Optional.of(group));
     given(groupMemberRepository.findByGroupIdAndUserId(GROUP_ID, USER_ID))
@@ -139,7 +139,7 @@ class GroupMemberServiceTest {
   @DisplayName("만든 코드가 이미 쓰이고 있으면 다시 만들어 겹치지 않는 코드를 발급한다")
   void issueInviteCode_codeCollision_retriesWithNewCode() {
     // given
-    givenMember(group());
+    givenOwner(group());
     given(inviteCodeGenerator.generate()).willReturn("AAAA2222", "BBBB3333");
     given(inviteCodeRepository.existsByCode("AAAA2222")).willReturn(true);
     given(inviteCodeRepository.existsByCode("BBBB3333")).willReturn(false);
@@ -158,7 +158,7 @@ class GroupMemberServiceTest {
   @DisplayName("5번 모두 겹치면 발급을 포기하고 아무것도 저장하지 않는다")
   void issueInviteCode_allAttemptsCollide_failsWithoutSaving() {
     // given
-    givenMember(group());
+    givenOwner(group());
     given(inviteCodeGenerator.generate()).willReturn("AAAA2222");
     given(inviteCodeRepository.existsByCode("AAAA2222")).willReturn(true);
 
@@ -174,7 +174,7 @@ class GroupMemberServiceTest {
   void issueInviteCode_existingCode_reissuesSameRow() {
     // given
     MeetingGroup group = group();
-    givenMember(group);
+    givenOwner(group);
     InviteCode existing = InviteCode.issue(group, "OLDC2345", Instant.parse("2026-11-20T00:00:00Z"));
     given(inviteCodeGenerator.generate()).willReturn("NEWC6789");
     given(inviteCodeRepository.existsByCode("NEWC6789")).willReturn(false);
@@ -210,7 +210,7 @@ class GroupMemberServiceTest {
   @DisplayName("4번 겹치고 5번째에 겹치지 않으면 5번째 코드로 발급한다")
   void issueInviteCode_fifthAttemptUnique_issues() {
     // given
-    givenMember(group());
+    givenOwner(group());
     given(inviteCodeGenerator.generate())
         .willReturn("AAAA2222", "AAAA2223", "AAAA2224", "AAAA2225", "BBBB3333");
     given(inviteCodeRepository.existsByCode(startsWith("AAAA")))
@@ -227,7 +227,7 @@ class GroupMemberServiceTest {
   }
 
   private void givenFirstIssue() {
-    givenMember(group());
+    givenOwner(group());
     given(inviteCodeGenerator.generate()).willReturn("CCCC4444");
     given(inviteCodeRepository.existsByCode("CCCC4444")).willReturn(false);
     given(inviteCodeRepository.findByGroupId(GROUP_ID)).willReturn(Optional.empty());
@@ -279,7 +279,7 @@ class GroupMemberServiceTest {
   void issueInviteCode_reissueCodeUniqueViolation_rejectedAsConcurrentUpdate() {
     // given: 이미 코드가 있는 그룹
     MeetingGroup group = group();
-    givenMember(group);
+    givenOwner(group);
     InviteCode existing = InviteCode.issue(group, "OLDC2345", NOW);
     given(inviteCodeGenerator.generate()).willReturn("DDDD5555");
     given(inviteCodeRepository.existsByCode("DDDD5555")).willReturn(false);

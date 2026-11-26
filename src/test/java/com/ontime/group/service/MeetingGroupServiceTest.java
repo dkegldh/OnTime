@@ -85,7 +85,7 @@ class MeetingGroupServiceTest {
         NOW);
   }
 
-  private void givenMember(MeetingGroup group) {
+  private void givenOwner(MeetingGroup group) {
     given(meetingGroupRepository.findByIdAndDeletedAtIsNull(GROUP_ID))
         .willReturn(Optional.of(group));
     given(groupMemberRepository.findByGroupIdAndUserId(GROUP_ID, USER_ID))
@@ -187,7 +187,7 @@ class MeetingGroupServiceTest {
   @DisplayName("멤버는 그룹 상세를 볼 수 있다")
   void get_member_returnsDetailWithRole() {
     // given
-    givenMember(group());
+    givenOwner(group());
 
     // when
     MeetingGroupResponse response = service.get(USER_ID, GROUP_ID);
@@ -228,7 +228,7 @@ class MeetingGroupServiceTest {
   void update_owner_renamesGroup() {
     // given
     MeetingGroup group = group();
-    givenMember(group);
+    givenOwner(group);
 
     // when
     MeetingGroupResponse response =
@@ -276,7 +276,7 @@ class MeetingGroupServiceTest {
   void delete_owner_recordsServerTimeAsDeletedAt() {
     // given
     MeetingGroup group = group();
-    givenMember(group);
+    givenOwner(group);
 
     // when
     service.delete(USER_ID, GROUP_ID);

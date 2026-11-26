@@ -729,9 +729,30 @@ class MeetingGroupControllerTest {
     // then
     result
         .andExpect(status().isForbidden())
-        .andExpect(jsonPath("$.code").value("OWNER_ONLY"));
+        .andExpect(jsonPath("$.code").value("OWNER_ONLY"))
+        .andExpect(jsonPath("$.message").value("방장만 할 수 있어요."));
     assertThat(findGroup(groupId).getDeletedAt()).isNull();
     getDetail(ownerId, groupId).andExpect(status().isOk());
+  }
+
+  @Test
+  @DisplayName("삭제된 그룹에 일반 멤버가 수정, 삭제를 요청하면 OWNER_ONLY가 아니라 404 GROUP_NOT_FOUND다")
+  void updateAndDelete_plainMemberOnDeletedGroup_notFoundBeforeOwnerCheck() throws Exception {
+    // given
+    Long groupId = createGroup(ownerId);
+    addPlainMember(groupId, otherId);
+    deleteGroup(ownerId, groupId).andExpect(status().isNoContent());
+
+    // when & then
+    rename(otherId, groupId, "토요일 모임")
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("GROUP_NOT_FOUND"));
+    deleteGroup(otherId, groupId)
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("GROUP_NOT_FOUND"));
+    MeetingGroup group = findGroup(groupId);
+    assertThat(group.getName()).isEqualTo("금요일 모임");
+    assertThat(group.getDeletedAt()).isEqualTo(NOW);
   }
 
   // ---- 동시 수정 (낙관적 락) ----
