@@ -5,7 +5,10 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 
-/** 테스트 안에서 시각을 옮길 수 있는 UTC Clock. 통합 테스트에서 {@code @Primary} 빈으로 등록해 쓴다. */
+/**
+ * 테스트 안에서 시각을 옮길 수 있는 UTC Clock. 공용 {@link MutableClockConfig} 는 이 Clock 을 운영과 같은 마이크로초 래퍼로
+ * 감싸 {@code @Primary} Clock 으로 등록한다.
+ */
 public final class MutableClock extends Clock {
 
   private volatile Instant now;

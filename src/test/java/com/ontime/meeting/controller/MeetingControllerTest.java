@@ -1357,8 +1357,11 @@ class MeetingControllerTest {
     // when & then
     arrive(ownerId, meetingId, PLACE_LAT, PLACE_LNG)
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.status").value("LATE_ARRIVED"));
-    assertThat(instantOf(arrivalRow(meetingId, ownerId).get("arrived_at")))
+        .andExpect(jsonPath("$.status").value("LATE_ARRIVED"))
+        .andExpect(jsonPath("$.arrivedAt").value("2026-11-28T10:59:59.999999Z"));
+    Map<String, Object> row = arrivalRow(meetingId, ownerId);
+    assertThat(row.get("status")).isEqualTo("LATE_ARRIVED");
+    assertThat(instantOf(row.get("arrived_at")))
         .isEqualTo(Instant.parse("2026-11-28T10:59:59.999999Z"))
         .isBefore(ABSENT_FROM);
   }

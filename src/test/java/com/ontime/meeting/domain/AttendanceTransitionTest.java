@@ -44,9 +44,25 @@ class AttendanceTransitionTest {
             CREATED_AT));
   }
 
+  // 이미 출발/도착한 상태의 행에 미리 넣어 두는 시각. 거절된 뒤 이 값이 덮어써지지 않았는지 본다.
+  private static final Instant EARLIER_DEPARTURE = Instant.parse("2026-12-04T08:00:00Z");
+  private static final Instant EARLIER_ARRIVAL = Instant.parse("2026-12-04T08:30:00Z");
+
+  /**
+   * 그 상태에 맞게 시각을 채운 참석 행. MOVING은 출발 시각, ARRIVED/LATE_ARRIVED는 출발·도착 시각을 가진다. (READY, LATE,
+   * ABSENT, EXCUSED는 출발하지 않았을 수 있어 비워 둔다)
+   */
   private static Attendance attendanceIn(Meeting meeting, AttendanceStatus status) {
     Attendance attendance = Attendance.ready(meeting, User.create("멤버"));
     ReflectionTestUtils.setField(attendance, "status", status);
+    if (status == AttendanceStatus.MOVING
+        || status == AttendanceStatus.ARRIVED
+        || status == AttendanceStatus.LATE_ARRIVED) {
+      ReflectionTestUtils.setField(attendance, "departedAt", EARLIER_DEPARTURE);
+    }
+    if (status == AttendanceStatus.ARRIVED || status == AttendanceStatus.LATE_ARRIVED) {
+      ReflectionTestUtils.setField(attendance, "arrivedAt", EARLIER_ARRIVAL);
+    }
     return attendance;
   }
 
@@ -70,21 +86,28 @@ class AttendanceTransitionTest {
   private static void assertResult(
       Attendance attendance, Action action, Instant now, String expected) {
     AttendanceStatus before = attendance.getStatus();
+    Instant departedBefore = attendance.getDepartedAt();
+    Instant arrivedBefore = attendance.getArrivedAt();
     if (isErrorCode(expected)) {
       assertThatThrownBy(() -> act(attendance, action, now))
           .isInstanceOf(BusinessException.class)
           .extracting("errorCode")
           .isEqualTo(ErrorCode.valueOf(expected));
       assertThat(attendance.getStatus()).isEqualTo(before);
-      assertThat(attendance.getDepartedAt()).isNull();
-      assertThat(attendance.getArrivedAt()).isNull();
+      assertThat(attendance.getDepartedAt()).isEqualTo(departedBefore);
+      assertThat(attendance.getArrivedAt()).isEqualTo(arrivedBefore);
       return;
     }
     act(attendance, action, now);
     assertThat(attendance.getStatus()).isEqualTo(AttendanceStatus.valueOf(expected));
-    Instant recorded =
-        action == Action.DEPART ? attendance.getDepartedAt() : attendance.getArrivedAt();
-    assertThat(recorded).isEqualTo(now);
+    if (action == Action.DEPART) {
+      assertThat(attendance.getDepartedAt()).isEqualTo(now);
+      assertThat(attendance.getArrivedAt()).isNull();
+    } else {
+      assertThat(attendance.getArrivedAt()).isEqualTo(now);
+      // 도착은 출발 시각을 건드리지 않는다 (MOVING에서 도착하면 출발 시각이 남는다)
+      assertThat(attendance.getDepartedAt()).isEqualTo(departedBefore);
+    }
   }
 
   private static boolean isErrorCode(String name) {
@@ -308,23 +331,24 @@ class AttendanceTransitionTest {
   class CrossingKstDate {
 
     @Test
-    @DisplayName("12/5 00:30 KST 약속은 12/4 15:30Z이고, 버튼은 전날 12:30Z(21:30 KST) 정각부터 열린다")
-    void afterMidnightKst_opensPreviousDay() {
+    @DisplayName("12/5 00:30 KST 약속은 전날 12/4 15:30Z로 저장된다")
+    void afterMidnightKst_meetingAtIsPreviousUtcDay() {
+      // when
+      Meeting meeting = meeting(LocalDate.of(2026, 12, 5), LocalTime.of(0, 30), 5, 60);
+
+      // then
+      assertThat(meeting.getMeetingAt()).isEqualTo(Instant.parse("2026-12-04T15:30:00Z"));
+    }
+
+    @ParameterizedTest(name = "출발 @ {0} → {1}")
+    @CsvSource({"2026-12-04T12:29:59Z, MEETING_NOT_OPEN", "2026-12-04T12:30:00Z, MOVING"})
+    @DisplayName("12/5 00:30 KST 약속의 버튼은 전날 12:30Z(21:30 KST) 정각부터 열린다")
+    void afterMidnightKst_buttonOpensPreviousDay(Instant now, String expected) {
       // given
       Meeting meeting = meeting(LocalDate.of(2026, 12, 5), LocalTime.of(0, 30), 5, 60);
 
       // when & then
-      assertThat(meeting.getMeetingAt()).isEqualTo(Instant.parse("2026-12-04T15:30:00Z"));
-      assertResult(
-          attendanceIn(meeting, AttendanceStatus.READY),
-          Action.DEPART,
-          Instant.parse("2026-12-04T12:29:59Z"),
-          "MEETING_NOT_OPEN");
-      assertResult(
-          attendanceIn(meeting, AttendanceStatus.READY),
-          Action.DEPART,
-          Instant.parse("2026-12-04T12:30:00Z"),
-          "MOVING");
+      assertResult(attendanceIn(meeting, AttendanceStatus.READY), Action.DEPART, now, expected);
     }
 
     @ParameterizedTest(name = "도착 @ {0} → {1}")
