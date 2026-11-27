@@ -16,6 +16,7 @@ import com.ontime.group.repository.MeetingGroupRepository;
 import com.ontime.meeting.domain.Attendance;
 import com.ontime.meeting.domain.AttendanceStatus;
 import com.ontime.meeting.domain.Meeting;
+import com.ontime.meeting.dto.ArriveRequest;
 import com.ontime.meeting.repository.AttendanceRepository;
 import com.ontime.meeting.repository.MeetingRepository;
 import com.ontime.support.MutableClock;
@@ -46,20 +47,20 @@ import org.springframework.context.annotation.Import;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 /**
- * 같은 참석 행에 출발 요청이 동시에 와도 한 번만 반영되는지 본다. 앱의 READY 검사를 여러 요청이 동시에 통과해도 {@code @Version}
- * 낙관적 락이 나중 커밋을 막아야 한다.
+ * 같은 참석 행에 출발/도착 요청이 동시에 와도 한 번만 반영되는지 본다. 앱의 상태 검사를 여러 요청이 동시에 통과해도 {@code
+ * @Version} 낙관적 락이 나중 커밋을 막아야 한다.
  *
  * <p>스레드마다 별도 트랜잭션이어야 경합이 재현되므로 클래스에 {@code @Transactional} 을 붙이지 않고 {@code @AfterEach} 에서
  * 정리한다.
  */
 @SpringBootTest
 @Import({TestcontainersConfiguration.class, MutableClockConfig.class})
-class AttendanceDepartConcurrencyTest {
+class AttendanceConcurrencyTest {
 
   private static final int THREADS = 10;
 
-  // 약속 2026-12-31 19:00 KST = 10:00Z. 1시간 전이라 버튼이 열려 있고 유예 전이다.
-  private static final Instant DEPART_NOW = Instant.parse("2026-12-31T09:00:00Z");
+  // 약속 2026-12-31 19:00 KST = 10:00Z. 1시간 전이라 버튼이 열려 있고 유예 전이다. (출발/도착 모두 이 시각에 누른다)
+  private static final Instant BUTTON_NOW = Instant.parse("2026-12-31T09:00:00Z");
 
   @Autowired private MeetingService meetingService;
   @Autowired private UserRepository userRepository;
@@ -90,7 +91,7 @@ class AttendanceDepartConcurrencyTest {
     groupMemberRepository.save(GroupMember.owner(group, owner));
     meeting = meetingRepository.save(Meeting.oneTimeOf(group));
     attendanceRepository.save(Attendance.ready(meeting, owner));
-    clock.setInstant(DEPART_NOW);
+    clock.setInstant(BUTTON_NOW);
   }
 
   @AfterEach
@@ -165,7 +166,28 @@ class AttendanceDepartConcurrencyTest {
     assertThat(counts).containsEntry("OK", 1);
     Attendance saved = attendanceRepository.findAll().get(0);
     assertThat(saved.getStatus()).isEqualTo(AttendanceStatus.MOVING);
-    assertThat(saved.getDepartedAt()).isEqualTo(DEPART_NOW);
+    assertThat(saved.getDepartedAt()).isEqualTo(BUTTON_NOW);
+    assertThat(saved.getVersion()).isEqualTo(1L);
+  }
+
+  @Test
+  @DisplayName("같은 사용자가 동시에 10번 도착하면 1번만 성공하고, 나머지는 INVALID_STATE 또는 낙관적 락 충돌, 버전은 1만 오른다")
+  void arrive_sameUserConcurrently_appliedOnce() throws Exception {
+    // given: 약속 장소에서 유예 전
+    ArriveRequest request = new ArriveRequest(37.4979, 127.0276);
+
+    // when
+    List<Object> results =
+        runConcurrently(() -> meetingService.arrive(owner.getId(), meeting.getId(), request));
+
+    // then: 먼저 커밋된 뒤 읽은 요청은 ARRIVED를 보고 INVALID_STATE, 같이 READY를 읽은 요청은 @Version 충돌
+    Map<Object, Integer> counts = countByKind(results);
+    assertThat(counts.keySet())
+        .isSubsetOf("OK", ErrorCode.INVALID_STATE, ObjectOptimisticLockingFailureException.class);
+    assertThat(counts).containsEntry("OK", 1);
+    Attendance saved = attendanceRepository.findAll().get(0);
+    assertThat(saved.getStatus()).isEqualTo(AttendanceStatus.ARRIVED);
+    assertThat(saved.getArrivedAt()).isEqualTo(BUTTON_NOW);
     assertThat(saved.getVersion()).isEqualTo(1L);
   }
 }

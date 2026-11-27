@@ -8,6 +8,7 @@ import com.ontime.group.service.GroupMembershipReader;
 import com.ontime.meeting.domain.Attendance;
 import com.ontime.meeting.domain.Meeting;
 import com.ontime.meeting.domain.MeetingStatus;
+import com.ontime.meeting.dto.ArriveRequest;
 import com.ontime.meeting.dto.AttendanceResponse;
 import com.ontime.meeting.dto.MeetingDetailResponse;
 import com.ontime.meeting.dto.MeetingSummary;
@@ -93,13 +94,30 @@ public class MeetingService {
    */
   @Transactional
   public AttendanceResponse depart(Long userId, Long meetingId) {
-    getMeetingForMember(userId, meetingId);
-    Attendance attendance =
-        attendanceRepository
-            .findWithUserByMeetingIdAndUserId(meetingId, userId)
-            .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_STATE));
+    Attendance attendance = getMyAttendance(userId, meetingId);
     attendance.depart(Instant.now(clock));
     return AttendanceResponse.from(attendance);
+  }
+
+  /**
+   * 도착: 요청 위치가 약속 장소 반경 안이면 요청자의 참석 상태를 {@code ARRIVED} 또는 {@code LATE_ARRIVED} 로 바꾸고 서버
+   * 시각을 도착 시각으로 기록한다. 지각 여부는 서버 시각으로 판정한다.
+   *
+   * <p>회차/멤버/참석 행 검사는 {@link #depart} 와 같다. 전이와 시간·반경 검사는 {@link Attendance#arrive} 가 한다.
+   */
+  @Transactional
+  public AttendanceResponse arrive(Long userId, Long meetingId, ArriveRequest request) {
+    Attendance attendance = getMyAttendance(userId, meetingId);
+    attendance.arrive(Instant.now(clock), request.latitude(), request.longitude());
+    return AttendanceResponse.from(attendance);
+  }
+
+  /** 회차 멤버 검사 후 요청자의 참석 행. 참석 행이 없으면(시작 뒤 참여) {@code INVALID_STATE}. */
+  private Attendance getMyAttendance(Long userId, Long meetingId) {
+    getMeetingForMember(userId, meetingId);
+    return attendanceRepository
+        .findWithUserByMeetingIdAndUserId(meetingId, userId)
+        .orElseThrow(() -> new BusinessException(ErrorCode.INVALID_STATE));
   }
 
   /** 없는 회차와 삭제된 그룹의 회차는 {@code MEETING_NOT_FOUND}, 그룹 멤버가 아니면 {@code NOT_GROUP_MEMBER}. */
