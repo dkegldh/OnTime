@@ -115,18 +115,19 @@ com.ontime
 ### 참석 상태 전이
 
 ```
-READY  → MOVING        출발 버튼
-READY  → ARRIVED       도착 버튼 (반경 안, 약속시간 + 유예 이전)
-MOVING → ARRIVED       도착 버튼 (반경 안, 약속시간 + 유예 이전)
-READY  → EXCUSED       빠지기 승인 (약속 24시간 전까지)
-READY/MOVING → LATE    스케줄러: 약속시간 + 유예 경과
-LATE   → LATE_ARRIVED  도착 버튼 (반경 안)
-READY/MOVING → LATE_ARRIVED  도착 버튼 (반경 안, 약속시간 + 유예 경과). 스케줄러가 아직 LATE로 안 바꿨어도 서버 시각으로 지각 판정
-LATE   → ABSENT        스케줄러: 약속시간 + absent_after_minutes 경과
+READY        → MOVING        출발 버튼 (약속시간 + 유예 정각 전까지)
+READY/MOVING → ARRIVED       도착 버튼 (반경 안, 약속시간 + 유예 정각 전)
+READY        → EXCUSED       빠지기 승인 (약속 24시간 전까지)
+READY/MOVING → LATE          스케줄러: 약속시간 + 유예 정각부터
+READY/MOVING → LATE_ARRIVED  도착 버튼 (반경 안, 약속시간 + 유예 정각부터 결석 시각 전)
+LATE         → LATE_ARRIVED  도착 버튼 (반경 안, 결석 시각 전)
+LATE         → ABSENT        스케줄러: 약속시간 + absent_after_minutes 정각부터
 ```
 
+- 경계 시각은 **정각부터 다음 구간**입니다. 유예 끝 정각에 도착하면 `LATE_ARRIVED`, 결석 시각 정각에 도착하면 거절입니다. (코드: `!now.isBefore(경계)`)
 - 위에 없는 전이는 `INVALID_STATE` 로 거절합니다. 전이 검사는 `Attendance` 엔티티 안에 둡니다.
-- 약속시간 + `absent_after_minutes` 정각부터는 상태와 관계없이 도착을 거절합니다(`INVALID_STATE`). 스케줄러가 ABSENT로 바꿀 대상입니다.
+- `READY/MOVING → LATE_ARRIVED`: 지각 판정은 서버 시각 기준이라, 스케줄러가 아직 LATE로 바꾸지 않았어도 LATE로 보고 판정합니다. 중간 LATE는 저장하지 않습니다. (그래서 원장 부과는 상태 전이가 아니라 확정된 결과를 보고 합니다. 아래 벌금 원장 참고)
+- 결석 시각 정각부터는 `READY/MOVING/LATE` 행의 도착을 거절합니다(`INVALID_STATE`). 이 행들은 스케줄러가 ABSENT로 바꿀 대상입니다. READY/MOVING은 표대로 LATE를 거쳐 ABSENT가 됩니다(한 번의 스케줄러 실행에서 두 단계를 모두 처리할 수 있음). 이미 끝난 상태(ARRIVED, LATE_ARRIVED, EXCUSED)는 바꾸지 않습니다.
 - 출발/도착 버튼은 약속 3시간 전부터 허용합니다. 그 전이면 `MEETING_NOT_OPEN`.
 - 도착은 약속 장소와의 거리를 하버사인 공식으로 계산해서 `arrival_radius_m` 이내일 때만 인정합니다. 밖이면 `ARRIVE_TOO_FAR`.
 - 지각 판정은 **서버 시각** 기준입니다. 클라이언트가 보낸 시각을 믿지 않습니다.
