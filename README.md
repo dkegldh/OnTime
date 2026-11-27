@@ -165,6 +165,7 @@ erDiagram
   - `LATE` 이거나, 약속시간 + 유예 정각이 지난 `READY/MOVING` 이면 `LATE_ARRIVED`. 지각 판정은 서버 시각 기준이라, 지각 스케줄러가 아직 돌지 않아 READY/MOVING으로 남아 있어도 LATE로 보고 `LATE → LATE_ARRIVED` 로 판정합니다. (스케줄러가 먼저 돈 경우와 최종 상태는 같고, 중간 LATE는 저장하지 않습니다)
   - 그래서 스케줄러보다 먼저 도착한 지각자는 LATE를 거치지 않습니다. 벌금은 상태를 바꾸는 순간이 아니라 결과가 확정된 행을 보고 매깁니다. (아래 "지각/결석 벌금" 참고)
   - 약속시간 + `absent_after_minutes` 정각부터는 스케줄러가 ABSENT로 바꿀 대상이라 상태와 관계없이 거절합니다.
+- 서버 시각은 마이크로초 단위로 내림해 씁니다(`ClockConfig`). PostgreSQL `TIMESTAMPTZ` 가 마이크로초 아래를 반올림하므로, 자르지 않으면 유예 끝 0.5µs 안쪽 도착이 `ARRIVED` 로 판정되고 `arrived_at` 은 유예 끝 정각으로 저장될 수 있습니다.
 - 상태 전이 검사는 `Attendance` 엔티티의 메서드에 있습니다. 허용되지 않은 전이는 `409 INVALID_STATE` 입니다.
 - 지각(`LATE`), 결석(`ABSENT`) 전이는 Phase 3 스케줄러에서 추가합니다.
 - 지각/결석 벌금 (Phase 3에서 구현, 원장 컬럼 등 세부 설계는 그 이슈에서 확정):
