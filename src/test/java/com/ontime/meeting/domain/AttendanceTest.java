@@ -16,6 +16,7 @@ import java.time.LocalTime;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -243,5 +244,320 @@ class AttendanceTest {
 
     // then
     assertThat(attendance.getStatus()).isEqualTo(AttendanceStatus.MOVING);
+  }
+
+  // ---- 도착 ----
+
+  // 약속 장소 37.4979, 127.0276, 반경 200m. 결석 판정은 약속 + 60분 = 11:00:00Z 정각부터.
+  // 같은 경도에서 위도 0.00179도 북쪽 = 199.04m(안), 0.00181도 = 201.26m(밖).
+  // 같은 위도에서 경도 0.00226도 동쪽 = 199.38m(안), 0.00228도 = 201.14m(밖). (위도 37.5도의 cos 0.793 반영)
+  private static final double PLACE_LAT = 37.4979;
+  private static final double PLACE_LNG = 127.0276;
+  private static final double LAT_199M = PLACE_LAT + 0.00179;
+  private static final double LAT_201M = PLACE_LAT + 0.00181;
+  private static final Instant ABSENT_FROM = Instant.parse("2026-12-04T11:00:00Z");
+  private static final Instant IN_TIME = Instant.parse("2026-12-04T09:55:00Z");
+
+  private static Attendance attendanceIn(AttendanceStatus status) {
+    Attendance attendance = readyAttendance();
+    ReflectionTestUtils.setField(attendance, "status", status);
+    return attendance;
+  }
+
+  private static void assertNotArrived(Attendance attendance, AttendanceStatus status) {
+    assertThat(attendance.getStatus()).isEqualTo(status);
+    assertThat(attendance.getArrivedAt()).isNull();
+  }
+
+  private static void assertArriveRejected(
+      Attendance attendance, Instant now, double lat, double lng, ErrorCode errorCode) {
+    assertThatThrownBy(() -> attendance.arrive(now, lat, lng))
+        .isInstanceOf(BusinessException.class)
+        .extracting("errorCode")
+        .isEqualTo(errorCode);
+  }
+
+  @Test
+  @DisplayName("READY에서 유예 전에 반경 안에서 도착하면 ARRIVED가 되고 도착 시각은 넘겨받은 서버 시각이다")
+  void arrive_readyInTime_becomesArrivedWithArrivedAt() {
+    // given
+    Attendance attendance = readyAttendance();
+
+    // when
+    attendance.arrive(IN_TIME, PLACE_LAT, PLACE_LNG);
+
+    // then
+    assertThat(attendance.getStatus()).isEqualTo(AttendanceStatus.ARRIVED);
+    assertThat(attendance.getArrivedAt()).isEqualTo(IN_TIME);
+    assertThat(attendance.getDepartedAt()).isNull();
+  }
+
+  @Test
+  @DisplayName("MOVING에서 유예 전에 도착하면 ARRIVED가 되고 출발 시각은 그대로다")
+  void arrive_movingInTime_becomesArrivedKeepingDepartedAt() {
+    // given
+    Attendance attendance = readyAttendance();
+    Instant departedAt = Instant.parse("2026-12-04T09:00:00Z");
+    attendance.depart(departedAt);
+
+    // when
+    attendance.arrive(IN_TIME, PLACE_LAT, PLACE_LNG);
+
+    // then
+    assertThat(attendance.getStatus()).isEqualTo(AttendanceStatus.ARRIVED);
+    assertThat(attendance.getArrivedAt()).isEqualTo(IN_TIME);
+    assertThat(attendance.getDepartedAt()).isEqualTo(departedAt);
+  }
+
+  @Test
+  @DisplayName("약속 3시간 전 정각에 도착하면 ARRIVED다")
+  void arrive_exactlyThreeHoursBefore_arrived() {
+    // given
+    Attendance attendance = readyAttendance();
+
+    // when
+    attendance.arrive(OPENS_AT, PLACE_LAT, PLACE_LNG);
+
+    // then
+    assertThat(attendance.getStatus()).isEqualTo(AttendanceStatus.ARRIVED);
+    assertThat(attendance.getArrivedAt()).isEqualTo(OPENS_AT);
+  }
+
+  @Test
+  @DisplayName("약속 3시간 전 1초 전에 도착하면 MEETING_NOT_OPEN으로 거절되고 상태는 그대로다")
+  void arrive_oneSecondBeforeOpen_rejectedWithMeetingNotOpen() {
+    // given
+    Attendance attendance = readyAttendance();
+
+    // when & then
+    assertArriveRejected(
+        attendance, OPENS_AT.minusSeconds(1), PLACE_LAT, PLACE_LNG, ErrorCode.MEETING_NOT_OPEN);
+    assertNotArrived(attendance, AttendanceStatus.READY);
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = AttendanceStatus.class, names = {"READY", "MOVING"})
+  @DisplayName("유예 끝나기 1초 전에 도착하면 ARRIVED다")
+  void arrive_oneSecondBeforeGraceEnds_arrived(AttendanceStatus status) {
+    // given
+    Attendance attendance = attendanceIn(status);
+
+    // when
+    attendance.arrive(LATE_FROM.minusSeconds(1), PLACE_LAT, PLACE_LNG);
+
+    // then
+    assertThat(attendance.getStatus()).isEqualTo(AttendanceStatus.ARRIVED);
+    assertThat(attendance.getArrivedAt()).isEqualTo(LATE_FROM.minusSeconds(1));
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = AttendanceStatus.class, names = {"READY", "MOVING"})
+  @DisplayName("약속시간 + 유예 정각에 도착하면 스케줄러가 돌지 않아 READY/MOVING이어도 지각으로 보고 LATE_ARRIVED다")
+  void arrive_atGraceEnd_lateArrived(AttendanceStatus status) {
+    // given
+    Attendance attendance = attendanceIn(status);
+
+    // when
+    attendance.arrive(LATE_FROM, PLACE_LAT, PLACE_LNG);
+
+    // then
+    assertThat(attendance.getStatus()).isEqualTo(AttendanceStatus.LATE_ARRIVED);
+    assertThat(attendance.getArrivedAt()).isEqualTo(LATE_FROM);
+  }
+
+  @Test
+  @DisplayName("유예 끝나고 1초 뒤에 도착하면 LATE_ARRIVED다")
+  void arrive_oneSecondAfterGraceEnds_lateArrived() {
+    // given
+    Attendance attendance = readyAttendance();
+
+    // when
+    attendance.arrive(LATE_FROM.plusSeconds(1), PLACE_LAT, PLACE_LNG);
+
+    // then
+    assertThat(attendance.getStatus()).isEqualTo(AttendanceStatus.LATE_ARRIVED);
+  }
+
+  @Test
+  @DisplayName("스케줄러가 LATE로 바꾼 뒤 도착하면 LATE_ARRIVED다")
+  void arrive_late_lateArrived() {
+    // given
+    Attendance attendance = attendanceIn(AttendanceStatus.LATE);
+    Instant now = Instant.parse("2026-12-04T10:30:00Z");
+
+    // when
+    attendance.arrive(now, PLACE_LAT, PLACE_LNG);
+
+    // then
+    assertThat(attendance.getStatus()).isEqualTo(AttendanceStatus.LATE_ARRIVED);
+    assertThat(attendance.getArrivedAt()).isEqualTo(now);
+  }
+
+  @ParameterizedTest
+  @EnumSource(value = AttendanceStatus.class, names = {"READY", "MOVING", "LATE"})
+  @DisplayName("결석 판정 시각 1초 전에 도착하면 LATE_ARRIVED다")
+  void arrive_oneSecondBeforeAbsent_lateArrived(AttendanceStatus status) {
+    // given
+    Attendance attendance = attendanceIn(status);
+
+    // when
+    attendance.arrive(ABSENT_FROM.minusSeconds(1), PLACE_LAT, PLACE_LNG);
+
+    // then
+    assertThat(attendance.getStatus()).isEqualTo(AttendanceStatus.LATE_ARRIVED);
+  }
+
+  @ParameterizedTest(name = "{0}, 결석 판정 + {1}초")
+  @CsvSource({"READY, 0", "MOVING, 0", "LATE, 0", "LATE, 1"})
+  @DisplayName("결석 판정 시각 정각부터는 스케줄러가 돌지 않았어도 INVALID_STATE로 거절되고 상태는 그대로다")
+  void arrive_atOrAfterAbsent_rejectedWithInvalidState(AttendanceStatus status, long secondsAfter) {
+    // given
+    Attendance attendance = attendanceIn(status);
+
+    // when & then
+    assertArriveRejected(
+        attendance,
+        ABSENT_FROM.plusSeconds(secondsAfter),
+        PLACE_LAT,
+        PLACE_LNG,
+        ErrorCode.INVALID_STATE);
+    assertNotArrived(attendance, status);
+  }
+
+  @ParameterizedTest
+  @EnumSource(
+      value = AttendanceStatus.class,
+      names = {"ARRIVED", "LATE_ARRIVED", "ABSENT", "EXCUSED"})
+  @DisplayName("이미 도착했거나 결석/빠지기 상태면 반경 안, 유예 전이어도 INVALID_STATE로 거절되고 상태와 도착 시각은 그대로다")
+  void arrive_notArrivable_rejectedWithInvalidState(AttendanceStatus status) {
+    // given
+    Attendance attendance = attendanceIn(status);
+    Instant earlierArrival = Instant.parse("2026-12-04T09:40:00Z");
+    ReflectionTestUtils.setField(attendance, "arrivedAt", earlierArrival);
+
+    // when & then
+    assertArriveRejected(attendance, IN_TIME, PLACE_LAT, PLACE_LNG, ErrorCode.INVALID_STATE);
+    assertThat(attendance.getStatus()).isEqualTo(status);
+    assertThat(attendance.getArrivedAt()).isEqualTo(earlierArrival);
+  }
+
+  @Test
+  @DisplayName("북쪽으로 199m 떨어진 곳에서는 도착할 수 있다 (반경 200m 안)")
+  void arrive_199mNorth_arrived() {
+    // given
+    Attendance attendance = readyAttendance();
+
+    // when
+    attendance.arrive(IN_TIME, LAT_199M, PLACE_LNG);
+
+    // then
+    assertThat(attendance.getStatus()).isEqualTo(AttendanceStatus.ARRIVED);
+  }
+
+  @Test
+  @DisplayName("북쪽으로 201m 떨어진 곳에서 도착하면 ARRIVE_TOO_FAR로 거절되고 상태는 그대로다")
+  void arrive_201mNorth_rejectedWithArriveTooFar() {
+    // given
+    Attendance attendance = readyAttendance();
+
+    // when & then
+    assertArriveRejected(attendance, IN_TIME, LAT_201M, PLACE_LNG, ErrorCode.ARRIVE_TOO_FAR);
+    assertNotArrived(attendance, AttendanceStatus.READY);
+  }
+
+  @Test
+  @DisplayName("동쪽으로 199m 떨어진 곳에서는 도착할 수 있다 (경도 간격을 위도로 줄여 계산)")
+  void arrive_199mEast_arrived() {
+    // given
+    Attendance attendance = readyAttendance();
+
+    // when
+    attendance.arrive(IN_TIME, PLACE_LAT, PLACE_LNG + 0.00226);
+
+    // then
+    assertThat(attendance.getStatus()).isEqualTo(AttendanceStatus.ARRIVED);
+  }
+
+  @Test
+  @DisplayName("동쪽으로 201m 떨어진 곳에서 도착하면 ARRIVE_TOO_FAR다 (경도 0.00228도는 적도 기준이면 254m지만 여기선 201m)")
+  void arrive_201mEast_rejectedWithArriveTooFar() {
+    // given
+    Attendance attendance = readyAttendance();
+
+    // when & then
+    assertArriveRejected(
+        attendance, IN_TIME, PLACE_LAT, PLACE_LNG + 0.00228, ErrorCode.ARRIVE_TOO_FAR);
+    assertNotArrived(attendance, AttendanceStatus.READY);
+  }
+
+  @Test
+  @DisplayName("지각 시간에 반경 밖이면 ARRIVE_TOO_FAR로 거절되고 LATE_ARRIVED로 바뀌지 않는다")
+  void arrive_lateAndTooFar_rejectedWithArriveTooFar() {
+    // given
+    Attendance attendance = attendanceIn(AttendanceStatus.MOVING);
+
+    // when & then
+    assertArriveRejected(
+        attendance, LATE_FROM.plusSeconds(60), LAT_201M, PLACE_LNG, ErrorCode.ARRIVE_TOO_FAR);
+    assertNotArrived(attendance, AttendanceStatus.MOVING);
+  }
+
+  @Test
+  @DisplayName("결석 판정 시각이 지났으면 반경 밖이어도 거리가 아니라 시간 때문에 INVALID_STATE로 거절된다")
+  void arrive_afterAbsentAndTooFar_rejectedWithInvalidState() {
+    // given
+    Attendance attendance = readyAttendance();
+
+    // when & then
+    assertArriveRejected(attendance, ABSENT_FROM, LAT_201M, PLACE_LNG, ErrorCode.INVALID_STATE);
+    assertNotArrived(attendance, AttendanceStatus.READY);
+  }
+
+  @Test
+  @DisplayName("회차를 만든 뒤 그룹 규칙이 바뀌어도 도착은 회차에 복사된 장소, 반경, 유예, 결석 시간으로 판정한다")
+  void arrive_groupRulesChangedAfterSnapshot_usesMeetingSnapshot() {
+    // given: 회차는 강남역, 유예 5분, 결석 60분, 반경 200m로 복사됐고, 그 뒤 그룹만 바뀐다
+    MeetingGroup group =
+        MeetingGroup.createOneTime(
+            "금요일 모임",
+            Place.of("강남역", PLACE_LAT, PLACE_LNG),
+            LocalDate.of(2026, 12, 4),
+            LocalTime.of(19, 0),
+            ArrivalRule.of(5, 60, 200),
+            FineRule.money(3000),
+            Instant.parse("2026-11-25T03:00:00Z"));
+    Meeting meeting = Meeting.oneTimeOf(group);
+    ReflectionTestUtils.setField(group, "place", Place.of("서울역", 37.5547, 126.9707));
+    ReflectionTestUtils.setField(group, "arrivalRule", ArrivalRule.of(0, 1, 50));
+    Attendance attendance = Attendance.ready(meeting, User.create("멤버"));
+
+    // when: 그룹 기준이면 장소가 멀고, 반경 50m 밖이고, 결석 시각(10:01)도 지났다
+    Instant now = LATE_FROM.minusSeconds(1);
+    attendance.arrive(now, LAT_199M, PLACE_LNG);
+
+    // then: 회차 기준이면 반경 안, 유예 전이라 정상 도착
+    assertThat(attendance.getStatus()).isEqualTo(AttendanceStatus.ARRIVED);
+    assertThat(attendance.getArrivedAt()).isEqualTo(now);
+  }
+
+  @Test
+  @DisplayName("반경이 50m인 회차에서는 199m 떨어진 곳에서 도착할 수 없다 (회차의 반경을 쓴다)")
+  void arrive_usesMeetingRadius() {
+    // given
+    Meeting smallRadius =
+        Meeting.oneTimeOf(
+            MeetingGroup.createOneTime(
+                "금요일 모임",
+                Place.of("강남역", PLACE_LAT, PLACE_LNG),
+                LocalDate.of(2026, 12, 4),
+                LocalTime.of(19, 0),
+                ArrivalRule.of(5, 60, 50),
+                FineRule.money(3000),
+                Instant.parse("2026-11-25T03:00:00Z")));
+    Attendance attendance = Attendance.ready(smallRadius, User.create("멤버"));
+
+    // when & then
+    assertArriveRejected(attendance, IN_TIME, LAT_199M, PLACE_LNG, ErrorCode.ARRIVE_TOO_FAR);
+    assertNotArrived(attendance, AttendanceStatus.READY);
   }
 }

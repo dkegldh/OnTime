@@ -938,4 +938,363 @@ class MeetingControllerTest {
         .andExpect(jsonPath("$.code").value("NOT_GROUP_MEMBER"));
     assertStillReady(meetingId, guestId);
   }
+
+  // ---- 도착 ----
+
+  // 약속 장소 37.4979, 127.0276, 반경 200m, 유예 5분, 결석 60분 → 11:00:00Z 정각부터 도착을 받지 않는다.
+  // 같은 경도에서 위도 0.00179도 북쪽 = 199.04m(안), 0.00181도 = 201.26m(밖). (기대값은 손으로 계산한 상수)
+  private static final double PLACE_LAT = 37.4979;
+  private static final double PLACE_LNG = 127.0276;
+  private static final double LAT_199M = PLACE_LAT + 0.00179;
+  private static final double LAT_201M = PLACE_LAT + 0.00181;
+  private static final Instant ABSENT_FROM = Instant.parse("2026-11-28T11:00:00Z");
+  private static final Instant IN_TIME = Instant.parse("2026-11-28T09:55:00Z");
+
+  private ResultActions arrive(Long userId, Long meetingId, Object body) throws Exception {
+    return mockMvc.perform(
+        post(MEETINGS + "/" + meetingId + "/arrive")
+            .header(USER_HEADER, userId.toString())
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(body)));
+  }
+
+  private ResultActions arrive(Long userId, Long meetingId, double lat, double lng)
+      throws Exception {
+    return arrive(userId, meetingId, Map.of("latitude", lat, "longitude", lng));
+  }
+
+  /** DB에 저장된 참석 행의 상태, 도착 시각, 버전. */
+  private Map<String, Object> arrivalRow(Long meetingId, Long userId) {
+    return jdbcTemplate.queryForMap(
+        "select status, departed_at, arrived_at, version from attendances"
+            + " where meeting_id = ? and user_id = ?",
+        meetingId,
+        userId);
+  }
+
+  private void assertNotArrived(Long meetingId, Long userId) {
+    Map<String, Object> row = arrivalRow(meetingId, userId);
+    assertThat(row.get("status")).isEqualTo("READY");
+    assertThat(row.get("arrived_at")).isNull();
+    assertThat(row.get("version")).isEqualTo(0L);
+  }
+
+  private static Instant instantOf(Object timestamp) {
+    return ((Timestamp) timestamp).toInstant();
+  }
+
+  @Test
+  @DisplayName("유예 전에 반경 안에서 도착하면 200과 내 참석 상태를 주고, DB에 ARRIVED와 서버 시각이 저장된다")
+  void arrive_inTimeWithinRadius_persistsArrivedWithServerTime() throws Exception {
+    // given
+    Long meetingId = meetingIdOf(groupId);
+    join(guestId, issueCode());
+    clock.setInstant(IN_TIME);
+
+    // when
+    ResultActions result = arrive(ownerId, meetingId, LAT_199M, PLACE_LNG);
+
+    // then
+    result
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.userId").value(ownerId))
+        .andExpect(jsonPath("$.status").value("ARRIVED"))
+        .andExpect(jsonPath("$.departedAt").value(nullValue()))
+        .andExpect(jsonPath("$.arrivedAt").value("2026-11-28T09:55:00Z"));
+    Map<String, Object> row = arrivalRow(meetingId, ownerId);
+    assertThat(row.get("status")).isEqualTo("ARRIVED");
+    assertThat(instantOf(row.get("arrived_at"))).isEqualTo(IN_TIME);
+    assertThat(row.get("version")).isEqualTo(1L);
+    assertNotArrived(meetingId, guestId);
+  }
+
+  @Test
+  @DisplayName("출발한 뒤 도착하면 ARRIVED가 되고 출발 시각은 그대로 남는다")
+  void arrive_afterDepart_keepsDepartedAt() throws Exception {
+    // given
+    Long meetingId = meetingIdOf(groupId);
+    clock.setInstant(Instant.parse("2026-11-28T09:00:00Z"));
+    depart(ownerId, meetingId).andExpect(status().isOk());
+    clock.setInstant(IN_TIME);
+
+    // when
+    arrive(ownerId, meetingId, PLACE_LAT, PLACE_LNG).andExpect(status().isOk());
+
+    // then
+    Map<String, Object> row = arrivalRow(meetingId, ownerId);
+    assertThat(row.get("status")).isEqualTo("ARRIVED");
+    assertThat(instantOf(row.get("departed_at"))).isEqualTo(Instant.parse("2026-11-28T09:00:00Z"));
+    assertThat(instantOf(row.get("arrived_at"))).isEqualTo(IN_TIME);
+    assertThat(row.get("version")).isEqualTo(2L);
+  }
+
+  @Test
+  @DisplayName("유예 끝나기 1초 전에 도착하면 ARRIVED다")
+  void arrive_oneSecondBeforeGraceEnd_arrived() throws Exception {
+    // given
+    Long meetingId = meetingIdOf(groupId);
+    clock.setInstant(LATE_FROM.minusSeconds(1));
+
+    // when & then
+    arrive(ownerId, meetingId, PLACE_LAT, PLACE_LNG)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("ARRIVED"));
+    assertThat(arrivalRow(meetingId, ownerId).get("status")).isEqualTo("ARRIVED");
+  }
+
+  @Test
+  @DisplayName("약속시간 + 유예 정각에 도착하면 스케줄러 없이도 서버 시각으로 지각 판정해 LATE_ARRIVED가 저장된다")
+  void arrive_atGraceEnd_persistsLateArrived() throws Exception {
+    // given: 지각 스케줄러(Phase 3) 전이라 상태는 아직 READY다
+    Long meetingId = meetingIdOf(groupId);
+    clock.setInstant(LATE_FROM);
+
+    // when & then
+    arrive(ownerId, meetingId, PLACE_LAT, PLACE_LNG)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("LATE_ARRIVED"))
+        .andExpect(jsonPath("$.arrivedAt").value("2026-11-28T10:05:00Z"));
+    Map<String, Object> row = arrivalRow(meetingId, ownerId);
+    assertThat(row.get("status")).isEqualTo("LATE_ARRIVED");
+    assertThat(instantOf(row.get("arrived_at"))).isEqualTo(LATE_FROM);
+  }
+
+  @Test
+  @DisplayName("LATE 상태(스케줄러 처리 뒤)에서 결석 시각 1초 전에 도착하면 LATE_ARRIVED가 저장된다")
+  void arrive_lateOneSecondBeforeAbsent_persistsLateArrived() throws Exception {
+    // given: 스케줄러 전이라 SQL로 LATE를 만든다
+    Long meetingId = meetingIdOf(groupId);
+    jdbcTemplate.update(
+        "update attendances set status = 'LATE' where meeting_id = ? and user_id = ?",
+        meetingId,
+        ownerId);
+    clock.setInstant(ABSENT_FROM.minusSeconds(1));
+
+    // when & then
+    arrive(ownerId, meetingId, PLACE_LAT, PLACE_LNG)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("LATE_ARRIVED"));
+    assertThat(arrivalRow(meetingId, ownerId).get("status")).isEqualTo("LATE_ARRIVED");
+  }
+
+  @Test
+  @DisplayName("결석 판정 시각 정각에 도착하면 409 INVALID_STATE이고 참석 행은 그대로다")
+  void arrive_atAbsentTime_conflictInvalidState() throws Exception {
+    // given
+    Long meetingId = meetingIdOf(groupId);
+    clock.setInstant(ABSENT_FROM);
+
+    // when & then
+    arrive(ownerId, meetingId, PLACE_LAT, PLACE_LNG)
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("INVALID_STATE"));
+    assertNotArrived(meetingId, ownerId);
+  }
+
+  @Test
+  @DisplayName("약속 3시간 전 1초 전에 도착하면 409 MEETING_NOT_OPEN이고 참석 행은 그대로다")
+  void arrive_oneSecondBeforeOpen_conflictMeetingNotOpen() throws Exception {
+    // given
+    Long meetingId = meetingIdOf(groupId);
+    clock.setInstant(OPENS_AT.minusSeconds(1));
+
+    // when & then
+    arrive(ownerId, meetingId, PLACE_LAT, PLACE_LNG)
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("MEETING_NOT_OPEN"));
+    assertNotArrived(meetingId, ownerId);
+  }
+
+  @Test
+  @DisplayName("약속 3시간 전 정각에 도착하면 ARRIVED다")
+  void arrive_exactlyAtOpen_arrived() throws Exception {
+    // given
+    Long meetingId = meetingIdOf(groupId);
+    clock.setInstant(OPENS_AT);
+
+    // when & then
+    arrive(ownerId, meetingId, PLACE_LAT, PLACE_LNG)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("ARRIVED"));
+  }
+
+  @Test
+  @DisplayName("반경 밖(201m)에서 도착하면 400 ARRIVE_TOO_FAR이고 참석 행은 그대로다")
+  void arrive_outsideRadius_badRequestArriveTooFar() throws Exception {
+    // given
+    Long meetingId = meetingIdOf(groupId);
+    clock.setInstant(IN_TIME);
+
+    // when & then
+    arrive(ownerId, meetingId, LAT_201M, PLACE_LNG)
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("ARRIVE_TOO_FAR"))
+        .andExpect(jsonPath("$.message").value("약속 장소에서 너무 멀리 있어요."));
+    assertNotArrived(meetingId, ownerId);
+  }
+
+  @Test
+  @DisplayName("이미 도착했는데 다시 도착하면 409 INVALID_STATE이고 처음 도착 시각이 그대로다")
+  void arrive_twice_conflictInvalidStateAndKeepsFirstArrivedAt() throws Exception {
+    // given
+    Long meetingId = meetingIdOf(groupId);
+    clock.setInstant(IN_TIME);
+    arrive(ownerId, meetingId, PLACE_LAT, PLACE_LNG).andExpect(status().isOk());
+    clock.setInstant(IN_TIME.plusSeconds(60));
+
+    // when & then
+    arrive(ownerId, meetingId, PLACE_LAT, PLACE_LNG)
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("INVALID_STATE"));
+    Map<String, Object> row = arrivalRow(meetingId, ownerId);
+    assertThat(row.get("status")).isEqualTo("ARRIVED");
+    assertThat(instantOf(row.get("arrived_at"))).isEqualTo(IN_TIME);
+    assertThat(row.get("version")).isEqualTo(1L);
+  }
+
+  @Test
+  @DisplayName("회차를 만든 뒤 그룹 행의 장소/반경/유예가 바뀌어도 도착은 회차에 복사된 값으로 판정한다")
+  void arrive_groupRulesChangedAfterCreation_usesMeetingSnapshot() throws Exception {
+    // given: 그룹 규칙 수정 API는 Phase 5라 SQL로 바꾼다. 그룹 기준이면 장소가 멀고 이미 지각이다
+    Long meetingId = meetingIdOf(groupId);
+    int updated =
+        jdbcTemplate.update(
+            """
+            update meeting_groups
+            set latitude = 35.0, longitude = 129.0, grace_minutes = 0,
+                absent_after_minutes = 1, arrival_radius_m = 50
+            where id = ?
+            """,
+            groupId);
+    assertThat(updated).isEqualTo(1);
+    clock.setInstant(LATE_FROM.minusSeconds(1));
+
+    // when & then
+    arrive(ownerId, meetingId, LAT_199M, PLACE_LNG)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("ARRIVED"));
+  }
+
+  @Test
+  @DisplayName("그룹 멤버가 아니면 도착이 403 NOT_GROUP_MEMBER다")
+  void arrive_nonMember_forbidden() throws Exception {
+    // given
+    Long meetingId = meetingIdOf(groupId);
+    clock.setInstant(IN_TIME);
+
+    // when & then
+    arrive(guestId, meetingId, PLACE_LAT, PLACE_LNG)
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("NOT_GROUP_MEMBER"));
+    assertNotArrived(meetingId, ownerId);
+  }
+
+  @Test
+  @DisplayName("없는 회차에 도착하면 404 MEETING_NOT_FOUND다")
+  void arrive_missingMeeting_notFound() throws Exception {
+    // given
+    clock.setInstant(IN_TIME);
+
+    // when & then
+    arrive(ownerId, meetingIdOf(groupId) + 1000, PLACE_LAT, PLACE_LNG)
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("MEETING_NOT_FOUND"));
+  }
+
+  @Test
+  @DisplayName("삭제된 그룹의 회차에 도착하면 404 MEETING_NOT_FOUND이고 참석 행은 그대로다")
+  void arrive_deletedGroup_notFound() throws Exception {
+    // given
+    Long meetingId = meetingIdOf(groupId);
+    mockMvc
+        .perform(delete(GROUPS + "/" + groupId).header(USER_HEADER, ownerId.toString()))
+        .andExpect(status().isNoContent());
+    clock.setInstant(IN_TIME);
+
+    // when & then
+    arrive(ownerId, meetingId, PLACE_LAT, PLACE_LNG)
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("MEETING_NOT_FOUND"));
+    assertNotArrived(meetingId, ownerId);
+  }
+
+  @Test
+  @DisplayName("회차가 시작한 뒤 참여해 참석 행이 없는 멤버가 도착하면 409 INVALID_STATE이고 참석 행이 생기지 않는다")
+  void arrive_joinedAfterStart_conflictInvalidState() throws Exception {
+    // given: 약속 정각에 참여해 참석 행이 없다. 도착 시각은 유예 안이다
+    Long meetingId = meetingIdOf(groupId);
+    String code = issueCode();
+    clock.setInstant(MEETING_AT);
+    join(guestId, code);
+    clock.setInstant(MEETING_AT.plusSeconds(60));
+
+    // when & then
+    arrive(guestId, meetingId, PLACE_LAT, PLACE_LNG)
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.code").value("INVALID_STATE"));
+    assertThat(attendanceCountOf(guestId)).isZero();
+  }
+
+  @Test
+  @DisplayName("나간 멤버는 참석 기록이 남아 있어도 도착할 수 없다 (403 NOT_GROUP_MEMBER)")
+  void arrive_leftMemberWithKeptAttendance_forbidden() throws Exception {
+    // given: 약속 정각에 나가서 참석 행이 남은 상태
+    Long meetingId = meetingIdOf(groupId);
+    join(guestId, issueCode());
+    clock.setInstant(MEETING_AT);
+    leave(guestId);
+    clock.setInstant(MEETING_AT.plusSeconds(60));
+
+    // when & then
+    arrive(guestId, meetingId, PLACE_LAT, PLACE_LNG)
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("NOT_GROUP_MEMBER"));
+    assertNotArrived(meetingId, guestId);
+  }
+
+  @ParameterizedTest(name = "{0}")
+  @ValueSource(
+      strings = {
+        "{\"longitude\": 127.0276}",
+        "{\"latitude\": 37.4979}",
+        "{\"latitude\": 90.0001, \"longitude\": 127.0276}",
+        "{\"latitude\": -90.0001, \"longitude\": 127.0276}",
+        "{\"latitude\": 37.4979, \"longitude\": 180.0001}",
+        "{\"latitude\": 37.4979, \"longitude\": -180.0001}",
+        "{\"latitude\": \"강남\", \"longitude\": 127.0276}",
+        ""
+      })
+  @DisplayName("위치가 없거나 범위를 벗어나거나 본문이 없으면 400 VALIDATION_FAILED이고 참석 행은 그대로다")
+  void arrive_invalidLocation_badRequest(String body) throws Exception {
+    // given
+    Long meetingId = meetingIdOf(groupId);
+    clock.setInstant(IN_TIME);
+
+    // when & then
+    mockMvc
+        .perform(
+            post(MEETINGS + "/" + meetingId + "/arrive")
+                .header(USER_HEADER, ownerId.toString())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    assertNotArrived(meetingId, ownerId);
+  }
+
+  @Test
+  @DisplayName("위도 90, 경도 180처럼 범위 끝 값은 검증을 통과하고 거리 검사에서 ARRIVE_TOO_FAR가 된다")
+  void arrive_locationAtRangeBounds_passesValidation() throws Exception {
+    // given
+    Long meetingId = meetingIdOf(groupId);
+    clock.setInstant(IN_TIME);
+
+    // when & then
+    arrive(ownerId, meetingId, 90.0, 180.0)
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("ARRIVE_TOO_FAR"));
+    arrive(ownerId, meetingId, -90.0, -180.0)
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("ARRIVE_TOO_FAR"));
+  }
 }
