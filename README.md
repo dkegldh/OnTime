@@ -162,7 +162,7 @@ erDiagram
 - 출발: `READY → MOVING`, `departed_at` 에 서버 시각을 기록합니다. 약속 3시간 전 정각부터, 약속시간 + 유예 정각 전까지 누를 수 있습니다. 유예가 지난 READY는 지각 스케줄러가 LATE로 바꿀 대상이므로, 스케줄러가 아직 돌지 않았어도 서버 시각만으로 거절합니다.
 - 도착: 요청 위치와 회차 장소(스냅샷)의 거리를 하버사인 공식(지구 반지름 6,371km)으로 계산해 `arrival_radius_m` 이내(같은 거리 포함)일 때만 인정하고, `arrived_at` 에 서버 시각을 기록합니다. 약속 3시간 전 정각부터 누를 수 있습니다.
   - `READY/MOVING` 이고 약속시간 + 유예 정각 전이면 `ARRIVED`
-  - `LATE` 이거나, 약속시간 + 유예 정각이 지난 `READY/MOVING` 이면 `LATE_ARRIVED`. 지각 판정은 서버 시각 기준이라, 지각 스케줄러가 아직 돌지 않아 READY/MOVING으로 남아 있어도 LATE로 보고 `LATE → LATE_ARRIVED` 로 판정합니다. (스케줄러가 먼저 돈 경우와 결과가 같고, 중간 LATE는 저장하지 않습니다)
+  - `LATE` 이거나, 약속시간 + 유예 정각이 지난 `READY/MOVING` 이면 `LATE_ARRIVED`. 지각 판정은 서버 시각 기준이라, 지각 스케줄러가 아직 돌지 않아 READY/MOVING으로 남아 있어도 LATE로 보고 `LATE → LATE_ARRIVED` 로 판정합니다. (스케줄러가 먼저 돈 경우와 최종 상태는 같고, 중간 LATE는 저장하지 않습니다)
   - 그래서 스케줄러보다 먼저 도착한 지각자는 LATE를 거치지 않습니다. Phase 3 지각 스케줄러는 `→ LATE` 전이 때만이 아니라, **지각 CHARGE가 없는 `LATE_ARRIVED` 행에도 지각 벌금을 부과**해야 합니다. (중복 부과는 원장의 부분 유니크 인덱스가 막습니다)
   - 약속시간 + `absent_after_minutes` 정각부터는 스케줄러가 ABSENT로 바꿀 대상이라 상태와 관계없이 거절합니다.
 - 상태 전이 검사는 `Attendance` 엔티티의 메서드에 있습니다. 허용되지 않은 전이는 `409 INVALID_STATE` 입니다.

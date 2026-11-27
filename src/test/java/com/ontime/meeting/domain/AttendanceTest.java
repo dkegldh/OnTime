@@ -582,6 +582,7 @@ class AttendanceTest {
 
     // then
     assertThat(attendance.getStatus()).isEqualTo(AttendanceStatus.ARRIVED);
+    assertThat(attendance.getArrivedAt()).isEqualTo(IN_TIME);
   }
 
   @Test

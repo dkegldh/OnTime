@@ -103,7 +103,7 @@ public class Attendance extends BaseTimeEntity {
    * <ul>
    *   <li>READY/MOVING이고 약속시간 + 유예 전이면 {@code ARRIVED}
    *   <li>LATE이거나, 유예가 지난 READY/MOVING이면 {@code LATE_ARRIVED}. 유예가 지난 READY/MOVING은 지각 스케줄러가
-   *       아직 돌지 않았더라도 LATE로 보고 {@code LATE → LATE_ARRIVED} 로 판정한다. (스케줄러가 먼저 돈 경우와 결과가 같다)
+   *       아직 돌지 않았더라도 LATE로 보고 {@code LATE → LATE_ARRIVED} 로 판정한다. (스케줄러가 먼저 돈 경우와 최종 상태가 같다)
    * </ul>
    *
    * <p>READY/MOVING/LATE가 아니면 {@code INVALID_STATE}, 약속 3시간 전보다 이르면 {@code MEETING_NOT_OPEN}, 결석 판정
