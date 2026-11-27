@@ -45,6 +45,7 @@ class AttendanceTransitionTest {
   }
 
   // 이미 출발/도착한 상태의 행에 미리 넣어 두는 시각. 거절된 뒤 이 값이 덮어써지지 않았는지 본다.
+  // 시간 구간과 무관한 고정값이다. "버튼 열리기 전" 행에서는 현실에 없는 조합이지만, 그 행은 모두 상태 때문에 거절되는지만 본다.
   private static final Instant EARLIER_DEPARTURE = Instant.parse("2026-12-04T08:00:00Z");
   private static final Instant EARLIER_ARRIVAL = Instant.parse("2026-12-04T08:30:00Z");
 
