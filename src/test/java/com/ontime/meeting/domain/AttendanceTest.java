@@ -560,4 +560,53 @@ class AttendanceTest {
     assertArriveRejected(attendance, IN_TIME, LAT_199M, PLACE_LNG, ErrorCode.ARRIVE_TOO_FAR);
     assertNotArrived(attendance, AttendanceStatus.READY);
   }
+
+  @Test
+  @DisplayName("거리가 반경과 정확히 같으면 도착으로 인정한다 (반경 0인 회차에서 장소 좌표 그대로 도착: 거리 0 = 반경 0)")
+  void arrive_distanceEqualsRadius_arrived() {
+    // given: 실수 좌표로 정확히 200.000m를 만들 수 없어서, 거리와 반경이 모두 정확히 0인 경우로 경계를 고정한다
+    Meeting zeroRadius =
+        Meeting.oneTimeOf(
+            MeetingGroup.createOneTime(
+                "금요일 모임",
+                Place.of("강남역", PLACE_LAT, PLACE_LNG),
+                LocalDate.of(2026, 12, 4),
+                LocalTime.of(19, 0),
+                ArrivalRule.of(5, 60, 0),
+                FineRule.money(3000),
+                Instant.parse("2026-11-25T03:00:00Z")));
+    Attendance attendance = Attendance.ready(zeroRadius, User.create("멤버"));
+
+    // when
+    attendance.arrive(IN_TIME, PLACE_LAT, PLACE_LNG);
+
+    // then
+    assertThat(attendance.getStatus()).isEqualTo(AttendanceStatus.ARRIVED);
+  }
+
+  @Test
+  @DisplayName("LATE 상태면 유예 전 시각이어도 LATE_ARRIVED다 (LATE는 언제나 지각 도착)")
+  void arrive_lateBeforeGraceEnd_lateArrived() {
+    // given
+    Attendance attendance = attendanceIn(AttendanceStatus.LATE);
+
+    // when
+    attendance.arrive(IN_TIME, PLACE_LAT, PLACE_LNG);
+
+    // then
+    assertThat(attendance.getStatus()).isEqualTo(AttendanceStatus.LATE_ARRIVED);
+    assertThat(attendance.getArrivedAt()).isEqualTo(IN_TIME);
+  }
+
+  @Test
+  @DisplayName("버튼이 열리기 전이면 반경 밖이어도 거리가 아니라 시간 때문에 MEETING_NOT_OPEN으로 거절된다")
+  void arrive_beforeOpenAndTooFar_rejectedWithMeetingNotOpen() {
+    // given
+    Attendance attendance = readyAttendance();
+
+    // when & then
+    assertArriveRejected(
+        attendance, OPENS_AT.minusSeconds(1), LAT_201M, PLACE_LNG, ErrorCode.MEETING_NOT_OPEN);
+    assertNotArrived(attendance, AttendanceStatus.READY);
+  }
 }

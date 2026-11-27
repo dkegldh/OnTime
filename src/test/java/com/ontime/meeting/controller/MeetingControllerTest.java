@@ -35,6 +35,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -1039,7 +1040,10 @@ class MeetingControllerTest {
     arrive(ownerId, meetingId, PLACE_LAT, PLACE_LNG)
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.status").value("ARRIVED"));
-    assertThat(arrivalRow(meetingId, ownerId).get("status")).isEqualTo("ARRIVED");
+    Map<String, Object> row = arrivalRow(meetingId, ownerId);
+    assertThat(row.get("status")).isEqualTo("ARRIVED");
+    assertThat(instantOf(row.get("arrived_at"))).isEqualTo(LATE_FROM.minusSeconds(1));
+    assertThat(row.get("version")).isEqualTo(1L);
   }
 
   @Test
@@ -1116,6 +1120,10 @@ class MeetingControllerTest {
     arrive(ownerId, meetingId, PLACE_LAT, PLACE_LNG)
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.status").value("ARRIVED"));
+    Map<String, Object> row = arrivalRow(meetingId, ownerId);
+    assertThat(row.get("status")).isEqualTo("ARRIVED");
+    assertThat(instantOf(row.get("arrived_at"))).isEqualTo(OPENS_AT);
+    assertThat(row.get("version")).isEqualTo(1L);
   }
 
   @Test
@@ -1282,19 +1290,18 @@ class MeetingControllerTest {
     assertNotArrived(meetingId, ownerId);
   }
 
-  @Test
-  @DisplayName("위도 90, 경도 180처럼 범위 끝 값은 검증을 통과하고 거리 검사에서 ARRIVE_TOO_FAR가 된다")
-  void arrive_locationAtRangeBounds_passesValidation() throws Exception {
+  @ParameterizedTest(name = "위도 {0}, 경도 {1}")
+  @CsvSource({"90.0, 180.0", "-90.0, -180.0"})
+  @DisplayName("위도/경도 범위 끝 값은 검증을 통과하고 거리 검사에서 400 ARRIVE_TOO_FAR가 되며 참석 행은 그대로다")
+  void arrive_locationAtRangeBounds_passesValidation(double lat, double lng) throws Exception {
     // given
     Long meetingId = meetingIdOf(groupId);
     clock.setInstant(IN_TIME);
 
     // when & then
-    arrive(ownerId, meetingId, 90.0, 180.0)
+    arrive(ownerId, meetingId, lat, lng)
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.code").value("ARRIVE_TOO_FAR"));
-    arrive(ownerId, meetingId, -90.0, -180.0)
-        .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.code").value("ARRIVE_TOO_FAR"));
+    assertNotArrived(meetingId, ownerId);
   }
 }
