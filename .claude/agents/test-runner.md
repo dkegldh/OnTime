@@ -32,7 +32,7 @@ model: sonnet
 1. AttendanceTest > arrive_atGraceEnd_lateArrived
    "약속시간 + 유예 정각에 도착하면 LATE_ARRIVED다"
    expected: LATE_ARRIVED / actual: ARRIVED
-   위치: Attendance.java:57
+   위치: Meeting.java:103 (isLateAt)
    추정 원인: 유예 마감 비교가 정각을 정상 도착으로 처리함 (!isBefore 대신 isAfter)
    이번 변경과 관련: 예
 

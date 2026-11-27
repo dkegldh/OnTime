@@ -124,7 +124,7 @@ LATE         → LATE_ARRIVED  도착 버튼 (반경 안, 결석 시각 전)
 LATE         → ABSENT        스케줄러: 약속시간 + absent_after_minutes 정각부터
 ```
 
-- 경계 시각은 **정각부터 다음 구간**입니다. 유예 끝 정각에 도착하면 `LATE_ARRIVED`, 결석 시각 정각에 도착하면 거절입니다. (코드: `!now.isBefore(경계)`)
+- 버튼 오픈(3시간 전), 유예 끝, 결석 시각은 **정각부터 다음 구간**입니다. 3시간 전 정각부터 버튼 허용, 유예 끝 정각에 도착하면 `LATE_ARRIVED`, 결석 시각 정각에 도착하면 거절입니다. (코드: `!now.isBefore(경계)`) 빠지기 마감(24시간 전)의 정각 처리는 Phase 5에서 정합니다.
 - 위에 없는 전이는 `INVALID_STATE` 로 거절합니다. 전이 검사는 `Attendance` 엔티티 안에 둡니다.
 - `READY/MOVING → LATE_ARRIVED`: 지각 판정은 서버 시각 기준이라, 스케줄러가 아직 LATE로 바꾸지 않았어도 LATE로 보고 판정합니다. 중간 LATE는 저장하지 않습니다. (그래서 원장 부과는 상태 전이가 아니라 확정된 결과를 보고 합니다. 아래 벌금 원장 참고)
 - 결석 시각 정각부터는 `READY/MOVING/LATE` 행의 도착을 거절합니다(`INVALID_STATE`). 이 행들은 스케줄러가 ABSENT로 바꿀 대상입니다. READY/MOVING은 표대로 LATE를 거쳐 ABSENT가 됩니다(한 번의 스케줄러 실행에서 두 단계를 모두 처리할 수 있음). 이미 끝난 상태(ARRIVED, LATE_ARRIVED, EXCUSED)는 바꾸지 않습니다.
