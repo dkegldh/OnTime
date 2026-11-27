@@ -27,7 +27,7 @@ model: opus
 **도메인 규칙 (가장 중요)**
 - 상태 전이가 `Attendance` 엔티티 안에서 검사되는가. CLAUDE.md 표에 없는 전이가 허용되는 경로가 있는가.
 - 지각 판정이 서버 시각(`Clock`)만 쓰는가. 요청 DTO의 시각을 믿는 곳이 있는가.
-- 경계 비교 연산자가 규칙과 맞는가 (유예 정각은 정상 도착, 3시간 전 정각부터 허용, 24시간 전까지 빠지기).
+- 경계 비교 연산자가 규칙과 맞는가. 버튼 오픈, 유예 끝, 결석 시각은 정각부터 다음 구간이다: 3시간 전 정각부터 버튼 허용, 유예 끝 정각부터 지각(`LATE_ARRIVED`), 결석 시각 정각부터 도착 거절. 이 세 경계는 코드로 `!now.isBefore(경계)` 가 맞다. 빠지기 마감(24시간 전)의 정각 처리는 아직 정해지지 않았으니(Phase 5), 구현이 어느 한쪽을 택했으면 [확인 필요]로 표시한다.
 - `fine_ledger` 가 append-only인가. `@Modifying` UPDATE/DELETE, `delete*()`, **엔티티 필드 변경으로 인한 dirty checking UPDATE** 가 없는가.
 - 면제가 `WAIVE` + `ref_ledger_id` 행 추가로 처리되는가. 잔액을 저장하지 않고 계산하는가.
 - 중복 부과 방지가 DB 부분 유니크 인덱스에 기대고 있는가 (애플리케이션 `exists` 검사만 있지 않은가).
@@ -60,10 +60,10 @@ model: opus
 ```
 ## 리뷰 결과: 심각 N건, 권장 M건
 
-[심각] src/main/java/.../Attendance.java:57
-문제: 유예 마감 비교가 isAfter 가 아니라 !isBefore 라서 정각 도착이 LATE 로 처리됨
-근거: CLAUDE.md 상태 전이 "약속시간 + 유예 이전" / 경계값 규칙
-제안: now.isAfter(graceDeadline) 일 때만 LATE
+[심각] src/main/java/com/ontime/meeting/domain/Meeting.java:103
+문제: 유예 마감 비교가 !isBefore 가 아니라 isAfter 라서 유예 끝 정각 도착이 ARRIVED 로 처리됨
+근거: CLAUDE.md 상태 전이 "버튼 오픈(3시간 전), 유예 끝, 결석 시각은 정각부터 다음 구간" (유예 끝 정각 도착은 LATE_ARRIVED)
+제안: !now.isBefore(graceEndsAt) 이면 지각
 
 [권장] ...
 ```

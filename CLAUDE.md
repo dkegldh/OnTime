@@ -81,6 +81,7 @@ com.ontime
 
 - 현재 시각은 반드시 주입받은 `Clock` 으로 구합니다: `Instant.now(clock)`
 - `LocalDateTime.now()`, `Instant.now()`, `System.currentTimeMillis()` 를 직접 호출하지 않습니다.
+- `Clock` 빈은 마이크로초로 내림한 시각을 줍니다(`MicrosecondClock`). DB `TIMESTAMPTZ` 가 마이크로초 아래를 반올림해 판정 시각과 저장 시각이 어긋나는 것을 막습니다. `Clock.tick` 은 쓰지 않습니다. (JDK 17에서 1ms 미만 tick의 `millis()` 가 `/ by zero`)
 - 엔티티의 시각 필드는 `Instant`, DB 타입은 `TIMESTAMPTZ` 입니다. 저장은 UTC, 표시는 프론트가 Asia/Seoul로 합니다.
 - 날짜만 필요한 값(정기 모임 시작일 등)은 `LocalDate`, 만나는 시각은 `LocalTime` (KST 기준)입니다.
 
@@ -114,16 +115,19 @@ com.ontime
 ### 참석 상태 전이
 
 ```
-READY  → MOVING        출발 버튼
-READY  → ARRIVED       도착 버튼 (반경 안, 약속시간 + 유예 이전)
-MOVING → ARRIVED       도착 버튼 (반경 안, 약속시간 + 유예 이전)
-READY  → EXCUSED       빠지기 승인 (약속 24시간 전까지)
-READY/MOVING → LATE    스케줄러: 약속시간 + 유예 경과
-LATE   → LATE_ARRIVED  도착 버튼 (반경 안)
-LATE   → ABSENT        스케줄러: 약속시간 + absent_after_minutes 경과
+READY        → MOVING        출발 버튼 (약속시간 + 유예 정각 전까지)
+READY/MOVING → ARRIVED       도착 버튼 (반경 안, 약속시간 + 유예 정각 전)
+READY        → EXCUSED       빠지기 승인 (약속 24시간 전까지)
+READY/MOVING → LATE          스케줄러: 약속시간 + 유예 정각부터
+READY/MOVING → LATE_ARRIVED  도착 버튼 (반경 안, 약속시간 + 유예 정각부터 결석 시각 전)
+LATE         → LATE_ARRIVED  도착 버튼 (반경 안, 결석 시각 전)
+LATE         → ABSENT        스케줄러: 약속시간 + absent_after_minutes 정각부터
 ```
 
+- 버튼 오픈(3시간 전), 유예 끝, 결석 시각은 **정각부터 다음 구간**입니다. 3시간 전 정각부터 버튼 허용, 유예 끝 정각에 도착하면 `LATE_ARRIVED`, 결석 시각 정각에 도착하면 거절입니다. (코드: `!now.isBefore(경계)`) 빠지기 마감(24시간 전)의 정각 처리는 Phase 5에서 정합니다.
 - 위에 없는 전이는 `INVALID_STATE` 로 거절합니다. 전이 검사는 `Attendance` 엔티티 안에 둡니다.
+- `READY/MOVING → LATE_ARRIVED`: 지각 판정은 서버 시각 기준이라, 스케줄러가 아직 LATE로 바꾸지 않았어도 LATE로 보고 판정합니다. 중간 LATE는 저장하지 않습니다. (그래서 원장 부과는 상태 전이가 아니라 확정된 결과를 보고 합니다. 아래 벌금 원장 참고)
+- 결석 시각 정각부터는 `READY/MOVING/LATE` 행의 도착을 거절합니다(`INVALID_STATE`). 이 행들은 스케줄러가 ABSENT로 바꿀 대상입니다. READY/MOVING은 표대로 LATE를 거쳐 ABSENT가 됩니다(한 번의 스케줄러 실행에서 두 단계를 모두 처리할 수 있음). 이미 끝난 상태(ARRIVED, LATE_ARRIVED, EXCUSED)는 바꾸지 않습니다.
 - 출발/도착 버튼은 약속 3시간 전부터 허용합니다. 그 전이면 `MEETING_NOT_OPEN`.
 - 도착은 약속 장소와의 거리를 하버사인 공식으로 계산해서 `arrival_radius_m` 이내일 때만 인정합니다. 밖이면 `ARRIVE_TOO_FAR`.
 - 지각 판정은 **서버 시각** 기준입니다. 클라이언트가 보낸 시각을 믿지 않습니다.
@@ -141,6 +145,9 @@ LATE   → ABSENT        스케줄러: 약속시간 + absent_after_minutes 경�
 - 잔액은 저장하지 않고 계산합니다: `CHARGE 합 − WAIVE 합 − PAYMENT 합`
 - 중복 부과는 DB 부분 유니크 인덱스로 막습니다. 애플리케이션 검사만 믿지 않습니다.
 - 벌칙(TEXT) 그룹도 원장에 `amount = 0` 으로 기록해 횟수를 셉니다.
+- 지각/결석 벌금은 결과가 **확정될 때 참석 행당 1회만** 부과합니다. `LATE_ARRIVED` 는 `fine_amount`, `ABSENT` 는 `fine_amount × 2` 입니다. `LATE` 인 동안은 부과하지 않습니다.
+- 부과는 스케줄러만 합니다. 확정됐는데 지각/결석 CHARGE가 없는 행을 찾아 부과합니다. (스케줄러보다 먼저 도착해 LATE를 거치지 않은 `LATE_ARRIVED` 포함)
+- 원장 행에 사유(`LATE` / `ABSENT`)를 기록합니다. 벌칙(TEXT) 그룹은 요약에서 결석 1건을 벌칙 2회로 셉니다.
 
 ### 스케줄러
 
