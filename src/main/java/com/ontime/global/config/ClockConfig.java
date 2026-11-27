@@ -1,15 +1,11 @@
 package com.ontime.global.config;
 
 import java.time.Clock;
-import java.time.Duration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 @Configuration
 public class ClockConfig {
-
-  /** DB {@code TIMESTAMPTZ} 의 정밀도. 서버 시각을 이 단위로 자른다. */
-  public static final Duration TICK = Duration.ofNanos(1_000);
 
   @Bean
   public Clock clock() {
@@ -24,6 +20,6 @@ public class ClockConfig {
    * 시각과 저장되는 시각이 항상 같도록 미리 자른다.
    */
   public static Clock microsecondClock(Clock base) {
-    return Clock.tick(base, TICK);
+    return new MicrosecondClock(base);
   }
 }
