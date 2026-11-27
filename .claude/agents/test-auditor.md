@@ -40,9 +40,9 @@ model: opus
 ## 테스트 감사 결과: 누락 N건, 약한 테스트 M건
 
 ### 누락
-[심각] Attendance.arrive (Attendance.java:52 `now.isAfter(graceDeadline)`)
-살아남는 변이: isAfter → !isBefore (정각 도착이 LATE 가 됨)
-필요한 테스트: arrive_atGraceDeadline_becomesArrived — 유예 마감 정각 도착 시 ARRIVED
+[심각] Meeting.isLateAt (Meeting.java:102 `!now.isBefore(graceEndsAt())`)
+살아남는 변이: !isBefore → isAfter (유예 끝 정각 도착이 ARRIVED 가 됨)
+필요한 테스트: arrive_atGraceEnd_lateArrived — 유예 끝 정각 도착 시 LATE_ARRIVED
 
 ### 약한 테스트
 [권장] AttendanceServiceTest.depart_beforeOpen_throws (AttendanceServiceTest.java:41)

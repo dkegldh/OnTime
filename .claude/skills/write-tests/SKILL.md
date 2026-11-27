@@ -40,8 +40,8 @@ description: 서비스/도메인 코드를 작성·수정했거나 테스트를 
 
 ```java
 @Test
-@DisplayName("유예시간 정각에 도착하면 ARRIVED가 된다")
-void arrive_atGraceDeadline_becomesArrived() { ... }
+@DisplayName("유예시간 정각에 도착하면 LATE_ARRIVED가 된다")
+void arrive_atGraceDeadline_becomesLateArrived() { ... }
 ```
 
 - 시간은 `Clock.fixed(...)` 로 고정합니다. 테스트에서도 `Instant.now()` 를 쓰지 않습니다.
@@ -75,7 +75,7 @@ assertThatThrownBy(() -> attendance.arrive(now, lat, lng))
 작업을 마칠 때 추가한 테스트와 각각이 검증하는 규칙을 짧게 요약합니다.
 
 ```
-- AttendanceTest.arrive_atGraceDeadline_becomesArrived: 유예시간 정각 도착은 정상 도착 (경계값)
-- AttendanceTest.arrive_oneSecondAfterGrace_rejectedAsInvalidState: 유예 1초 후 MOVING → ARRIVED 불가
+- AttendanceTest.arrive_atGraceDeadline_becomesLateArrived: 유예시간 정각 도착은 지각 도착 (경계값: 정각부터 지각)
+- AttendanceTest.arrive_oneSecondBeforeGraceDeadline_becomesArrived: 유예 1초 전 도착은 정상 도착
 - ...
 ```

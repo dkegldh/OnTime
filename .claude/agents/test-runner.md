@@ -29,11 +29,11 @@ model: sonnet
 ```
 ## 테스트 결과: 실패 (총 142, 실패 2, 에러 0)
 
-1. AttendanceTest > arrive_atGraceDeadline_becomesArrived
-   "유예시간 정각에 도착하면 ARRIVED가 된다"
-   expected: ARRIVED / actual: LATE_ARRIVED
+1. AttendanceTest > arrive_atGraceEnd_lateArrived
+   "약속시간 + 유예 정각에 도착하면 LATE_ARRIVED다"
+   expected: LATE_ARRIVED / actual: ARRIVED
    위치: Attendance.java:57
-   추정 원인: 유예 마감 비교가 정각을 지각으로 처리함 (isAfter 대신 !isBefore)
+   추정 원인: 유예 마감 비교가 정각을 정상 도착으로 처리함 (!isBefore 대신 isAfter)
    이번 변경과 관련: 예
 
 2. ...

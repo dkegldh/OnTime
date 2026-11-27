@@ -13,7 +13,8 @@ import org.junit.jupiter.api.Test;
 /**
  * 예시: 엔티티 단위 테스트. Spring 없이 엔티티의 상태 전이와 경계값만 검증한다.
  *
- * <p>약속 19:00 KST (= 10:00 UTC), 유예 5분 → 유예 마감 10:05:00Z.
+ * <p>약속 19:00 KST (= 10:00 UTC), 유예 5분 → 유예 마감 10:05:00Z. 경계 시각은 정각부터 다음 구간이다
+ * (10:05:00Z 정각 도착은 지각).
  * 기대값은 모두 손으로 계산한 상수다.
  */
 class AttendanceTest {
@@ -31,8 +32,8 @@ class AttendanceTest {
   class Arrive {
 
     @Test
-    @DisplayName("유예시간 정각에 도착하면 ARRIVED가 된다")
-    void arrive_atGraceDeadline_becomesArrived() {
+    @DisplayName("유예시간 정각에 도착하면 LATE_ARRIVED가 된다")
+    void arrive_atGraceDeadline_becomesLateArrived() {
       // given
       Attendance attendance = AttendanceFixture.moving(GRACE_DEADLINE);
 
@@ -40,7 +41,7 @@ class AttendanceTest {
       attendance.arrive(GRACE_DEADLINE, INSIDE_LAT, INSIDE_LNG);
 
       // then
-      assertThat(attendance.getStatus()).isEqualTo(AttendanceStatus.ARRIVED);
+      assertThat(attendance.getStatus()).isEqualTo(AttendanceStatus.LATE_ARRIVED);
       assertThat(attendance.getArrivedAt()).isEqualTo(GRACE_DEADLINE);
     }
 
@@ -77,7 +78,8 @@ class AttendanceTest {
       Attendance attendance = AttendanceFixture.moving(GRACE_DEADLINE);
 
       // when & then
-      assertThatThrownBy(() -> attendance.arrive(GRACE_DEADLINE, OUTSIDE_LAT, OUTSIDE_LNG))
+      assertThatThrownBy(
+              () -> attendance.arrive(GRACE_DEADLINE.minusSeconds(60), OUTSIDE_LAT, OUTSIDE_LNG))
           .isInstanceOf(BusinessException.class)
           .extracting("errorCode")
           .isEqualTo(ErrorCode.ARRIVE_TOO_FAR);
@@ -92,7 +94,8 @@ class AttendanceTest {
       Attendance attendance = AttendanceFixture.arrived(GRACE_DEADLINE);
 
       // when & then
-      assertThatThrownBy(() -> attendance.arrive(GRACE_DEADLINE, INSIDE_LAT, INSIDE_LNG))
+      assertThatThrownBy(
+              () -> attendance.arrive(GRACE_DEADLINE.minusSeconds(60), INSIDE_LAT, INSIDE_LNG))
           .isInstanceOf(BusinessException.class)
           .extracting("errorCode")
           .isEqualTo(ErrorCode.INVALID_STATE);
@@ -104,13 +107,13 @@ class AttendanceTest {
   class MarkLate {
 
     @Test
-    @DisplayName("유예시간 정각에는 아직 지각이 아니다")
-    void markLateIfOverdue_atGraceDeadline_staysMoving() {
+    @DisplayName("유예시간 1초 전에는 아직 지각이 아니다")
+    void markLateIfOverdue_oneSecondBeforeGrace_staysMoving() {
       // given
       Attendance attendance = AttendanceFixture.moving(GRACE_DEADLINE);
 
       // when
-      boolean changed = attendance.markLateIfOverdue(GRACE_DEADLINE);
+      boolean changed = attendance.markLateIfOverdue(GRACE_DEADLINE.minusSeconds(1));
 
       // then
       assertThat(changed).isFalse();
@@ -118,13 +121,13 @@ class AttendanceTest {
     }
 
     @Test
-    @DisplayName("유예시간 1초 후에는 LATE가 된다")
-    void markLateIfOverdue_oneSecondAfterGrace_becomesLate() {
+    @DisplayName("유예시간 정각부터 LATE가 된다")
+    void markLateIfOverdue_atGraceDeadline_becomesLate() {
       // given
       Attendance attendance = AttendanceFixture.moving(GRACE_DEADLINE);
 
       // when
-      boolean changed = attendance.markLateIfOverdue(GRACE_DEADLINE.plusSeconds(1));
+      boolean changed = attendance.markLateIfOverdue(GRACE_DEADLINE);
 
       // then
       assertThat(changed).isTrue();
