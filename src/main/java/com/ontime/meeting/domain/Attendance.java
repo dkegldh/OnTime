@@ -26,7 +26,7 @@ import lombok.NoArgsConstructor;
  * 회차별 멤버 참석 상태.
  *
  * <p>상태 전이 검사는 이 엔티티의 메서드가 가진다. 허용되지 않은 전이는 {@code INVALID_STATE} 로 거절한다. 시각은 항상
- * 서버 시각을 받는다. (도착, 지각 판정은 다음 이슈들에서 추가)
+ * 서버 시각을 받는다. (지각/결석 스케줄러 전이는 Phase 3에서 추가)
  */
 @Getter
 @Entity
@@ -95,5 +95,37 @@ public class Attendance extends BaseTimeEntity {
     }
     this.status = AttendanceStatus.MOVING;
     this.departedAt = now;
+  }
+
+  /**
+   * 도착: 반경 안이면 {@code ARRIVED} 또는 {@code LATE_ARRIVED} 로 바꾸고 도착 시각을 기록한다.
+   *
+   * <ul>
+   *   <li>READY/MOVING이고 약속시간 + 유예 전이면 {@code ARRIVED}
+   *   <li>LATE이거나, 유예가 지난 READY/MOVING이면 {@code LATE_ARRIVED}. 유예가 지난 READY/MOVING은 지각 스케줄러가
+   *       아직 돌지 않았더라도 LATE로 보고 {@code LATE → LATE_ARRIVED} 로 판정한다. (스케줄러가 먼저 돈 경우와 결과가 같다)
+   * </ul>
+   *
+   * <p>READY/MOVING/LATE가 아니면 {@code INVALID_STATE}, 약속 3시간 전보다 이르면 {@code MEETING_NOT_OPEN}, 결석 판정
+   * 시각이 지났으면(정각 포함) 스케줄러가 ABSENT로 바꿀 대상이라 {@code INVALID_STATE}, 반경 밖이면 {@code ARRIVE_TOO_FAR}.
+   */
+  public void arrive(Instant now, double latitude, double longitude) {
+    if (status != AttendanceStatus.READY
+        && status != AttendanceStatus.MOVING
+        && status != AttendanceStatus.LATE) {
+      throw new BusinessException(ErrorCode.INVALID_STATE);
+    }
+    if (!meeting.isButtonOpenAt(now)) {
+      throw new BusinessException(ErrorCode.MEETING_NOT_OPEN);
+    }
+    if (meeting.isAbsentAt(now)) {
+      throw new BusinessException(ErrorCode.INVALID_STATE);
+    }
+    if (!meeting.isWithinArrivalRadius(latitude, longitude)) {
+      throw new BusinessException(ErrorCode.ARRIVE_TOO_FAR);
+    }
+    boolean late = status == AttendanceStatus.LATE || meeting.isLateAt(now);
+    this.status = late ? AttendanceStatus.LATE_ARRIVED : AttendanceStatus.ARRIVED;
+    this.arrivedAt = now;
   }
 }

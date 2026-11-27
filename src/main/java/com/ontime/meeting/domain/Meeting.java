@@ -91,9 +91,27 @@ public class Meeting extends BaseTimeEntity {
   /**
    * 출발 버튼이 닫혔는지. 약속시간 + 유예 정각부터 닫힌다.
    *
-   * <p>출발 전용 경계다. 도착/지각 판정의 정각 처리는 그 이슈에서 따로 정하므로 이 메서드를 재사용하지 않는다.
+   * <p>출발 전용 경계다. 지금은 {@link #isLateAt} 과 같은 시각이지만, 출발 마감과 지각 판정은 따로 바뀔 수 있어 메서드를
+   * 나눠 둔다.
    */
   public boolean isDepartClosedAt(Instant now) {
     return !now.isBefore(graceEndsAt());
+  }
+
+  /** 지각 판정. 약속시간 + 유예 정각부터 지각이다. (스케줄러 실행 여부와 관계없이 서버 시각만으로 판단) */
+  public boolean isLateAt(Instant now) {
+    return !now.isBefore(graceEndsAt());
+  }
+
+  /** 결석 판정. 약속시간 + absent_after_minutes 정각부터 결석이고, 그 뒤에는 도착을 받지 않는다. */
+  public boolean isAbsentAt(Instant now) {
+    return !now.isBefore(meetingAt.plus(Duration.ofMinutes(arrivalRule.getAbsentAfterMinutes())));
+  }
+
+  /** 위치가 약속 장소에서 도착 인정 반경(회차 스냅샷) 안인지. 반경과 같은 거리는 안으로 본다. */
+  public boolean isWithinArrivalRadius(double latitude, double longitude) {
+    double distance =
+        GeoDistance.meters(place.getLatitude(), place.getLongitude(), latitude, longitude);
+    return distance <= arrivalRule.getArrivalRadiusM();
   }
 }

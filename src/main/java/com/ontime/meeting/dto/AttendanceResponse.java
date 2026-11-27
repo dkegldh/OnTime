@@ -4,7 +4,7 @@ import com.ontime.meeting.domain.Attendance;
 import com.ontime.meeting.domain.AttendanceStatus;
 import java.time.Instant;
 
-/** 멤버별 참석 상태. 회차 상세의 참석 목록과 출발 응답에 쓴다. */
+/** 멤버별 참석 상태. 회차 상세의 참석 목록과 출발/도착 응답에 쓴다. */
 public record AttendanceResponse(
     Long userId,
     String nickname,
