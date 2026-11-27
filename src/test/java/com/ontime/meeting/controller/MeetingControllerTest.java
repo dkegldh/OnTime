@@ -1304,4 +1304,65 @@ class MeetingControllerTest {
         .andExpect(jsonPath("$.code").value("ARRIVE_TOO_FAR"));
     assertNotArrived(meetingId, ownerId);
   }
+
+  // ---- 시각 저장 정밀도 ----
+  // PostgreSQL TIMESTAMPTZ는 마이크로초까지 저장하고 그 아래는 반올림한다. 서버 시각이 나노초면 판정 시각과 저장 시각이
+  // 갈라질 수 있어, 서버 Clock이 마이크로초로 내림한 시각으로 판정·저장하는지 본다. (MutableClockConfig는 운영과 같은 래핑을 쓴다)
+
+  @Test
+  @DisplayName("유예 끝 1나노초 전 도착은 ARRIVED이고, 응답과 DB의 도착 시각이 같으며 유예 끝보다 앞이다")
+  void arrive_oneNanoBeforeGraceEnd_storedTimeMatchesJudgement() throws Exception {
+    // given
+    Long meetingId = meetingIdOf(groupId);
+    clock.setInstant(LATE_FROM.minusNanos(1));
+
+    // when & then: 반올림됐다면 DB에는 10:05:00(지각 경계)으로 남는다
+    arrive(ownerId, meetingId, PLACE_LAT, PLACE_LNG)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("ARRIVED"))
+        .andExpect(jsonPath("$.arrivedAt").value("2026-11-28T10:04:59.999999Z"));
+    Map<String, Object> row = arrivalRow(meetingId, ownerId);
+    assertThat(row.get("status")).isEqualTo("ARRIVED");
+    assertThat(instantOf(row.get("arrived_at")))
+        .isEqualTo(Instant.parse("2026-11-28T10:04:59.999999Z"))
+        .isBefore(LATE_FROM);
+  }
+
+  @Test
+  @DisplayName("유예 끝 1나노초 전 출발은 MOVING이고, 응답과 DB의 출발 시각이 같으며 유예 끝보다 앞이다")
+  void depart_oneNanoBeforeGraceEnd_storedTimeMatchesJudgement() throws Exception {
+    // given
+    Long meetingId = meetingIdOf(groupId);
+    clock.setInstant(LATE_FROM.minusNanos(1));
+
+    // when & then
+    depart(ownerId, meetingId)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("MOVING"))
+        .andExpect(jsonPath("$.departedAt").value("2026-11-28T10:04:59.999999Z"));
+    Map<String, Object> row = attendanceRow(meetingId, ownerId);
+    assertThat(row.get("status")).isEqualTo("MOVING");
+    assertThat(instantOf(row.get("departed_at")))
+        .isEqualTo(Instant.parse("2026-11-28T10:04:59.999999Z"))
+        .isBefore(LATE_FROM);
+  }
+
+  @Test
+  @DisplayName("결석 시각 1나노초 전 도착은 LATE_ARRIVED이고, DB의 도착 시각은 결석 시각보다 앞이다")
+  void arrive_oneNanoBeforeAbsent_storedTimeBeforeAbsent() throws Exception {
+    // given
+    Long meetingId = meetingIdOf(groupId);
+    clock.setInstant(ABSENT_FROM.minusNanos(1));
+
+    // when & then
+    arrive(ownerId, meetingId, PLACE_LAT, PLACE_LNG)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("LATE_ARRIVED"))
+        .andExpect(jsonPath("$.arrivedAt").value("2026-11-28T10:59:59.999999Z"));
+    Map<String, Object> row = arrivalRow(meetingId, ownerId);
+    assertThat(row.get("status")).isEqualTo("LATE_ARRIVED");
+    assertThat(instantOf(row.get("arrived_at")))
+        .isEqualTo(Instant.parse("2026-11-28T10:59:59.999999Z"))
+        .isBefore(ABSENT_FROM);
+  }
 }
