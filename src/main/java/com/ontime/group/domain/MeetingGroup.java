@@ -37,7 +37,8 @@ import lombok.NoArgsConstructor;
             constraint =
                 "(type = 'ONE_TIME' and end_date is null and days_of_week is null)"
                     + " or (type = 'RECURRING' and end_date is not null and end_date >= start_date"
-                    + " and days_of_week between 1 and "
+                    // between 은 NULL이면 UNKNOWN이라 CHECK를 통과하므로 NOT NULL을 따로 건다.
+                    + " and days_of_week is not null and days_of_week between 1 and "
                     + Weekdays.ALL_BITS
                     + ")"))
 @NoArgsConstructor(access = AccessLevel.PROTECTED)

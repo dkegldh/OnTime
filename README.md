@@ -122,7 +122,7 @@ erDiagram
 | `start_date` + `meeting_time` | 일회성: KST 기준 약속 일시. 생성할 때 서버 시각보다 뒤여야 합니다. 정기: 기간 시작일과 매 회차의 만나는 시각. 시작일은 오늘(KST) 이후여야 합니다(오늘 포함). |
 | `end_date` | 정기 모임 기간 종료일(KST, 포함). 시작일 이후이고, 기간은 시작일·종료일 포함 최대 90일입니다. 일회성은 null. |
 | `days_of_week` | 정기 모임 요일. 비트마스크로 저장합니다: 월=1, 화=2, 수=4, 목=8, 금=16, 토=32, 일=64 (예: 월·수 = 5). 1~127. 일회성은 null. |
-| CHECK `chk_meeting_groups_schedule` | 일회성은 `end_date`, `days_of_week` 가 모두 null, 정기는 모두 있고 `end_date >= start_date`, `days_of_week` 1~127. |
+| CHECK `chk_meeting_groups_schedule` | 일회성은 `end_date`, `days_of_week` 가 모두 null, 정기는 모두 있고(NOT NULL을 따로 검사: `between` 은 NULL이면 CHECK를 통과시킴) `end_date >= start_date`, `days_of_week` 1~127. |
 | `grace_minutes` | 0~60분 |
 | `absent_after_minutes` | 1~180분, `grace_minutes` 보다 커야 합니다. |
 | `arrival_radius_m` | 50~1000m |
