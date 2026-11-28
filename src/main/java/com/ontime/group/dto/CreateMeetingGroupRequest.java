@@ -21,6 +21,7 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 그룹 생성 요청. 날짜와 시각은 KST 기준이다.
@@ -71,7 +72,9 @@ public record CreateMeetingGroupRequest(
     if (groupType() != GroupType.RECURRING) {
       return true;
     }
-    return daysOfWeek != null && !daysOfWeek.isEmpty() && !daysOfWeek.contains(null);
+    return daysOfWeek != null
+        && !daysOfWeek.isEmpty()
+        && daysOfWeek.stream().noneMatch(Objects::isNull);
   }
 
   @Schema(hidden = true)

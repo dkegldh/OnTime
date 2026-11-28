@@ -25,9 +25,12 @@ public final class Weekdays {
     this.days = days;
   }
 
-  /** 요일이 없거나 null이 섞여 있으면 {@code VALIDATION_FAILED}. */
+  /**
+   * 요일이 없거나 null이 섞여 있으면 {@code VALIDATION_FAILED}. ({@code List.of} 같은 불변 컬렉션의 {@code contains(null)}
+   * 은 NPE를 던지므로 스트림으로 검사한다)
+   */
   public static Weekdays of(Collection<Weekday> days) {
-    if (days == null || days.isEmpty() || days.contains(null)) {
+    if (days == null || days.isEmpty() || days.stream().anyMatch(Objects::isNull)) {
       throw new BusinessException(ErrorCode.VALIDATION_FAILED);
     }
     return new Weekdays(EnumSet.copyOf(days));
