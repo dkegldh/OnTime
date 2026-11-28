@@ -34,7 +34,11 @@ public class MeetingGroupController {
 
   private final MeetingGroupService meetingGroupService;
 
-  @Operation(summary = "일회성 약속 그룹 생성", description = "요청한 사용자가 방장이 됩니다.")
+  @Operation(
+      summary = "약속 그룹 생성",
+      description =
+          "요청한 사용자가 방장이 됩니다. type을 생략하면 일회성(ONE_TIME)입니다. 정기 모임(RECURRING)은"
+              + " startDate~endDate(최대 90일) 안의 daysOfWeek마다 회차를 만듭니다.")
   @PostMapping
   public ResponseEntity<MeetingGroupResponse> create(
       @Parameter(hidden = true) @LoginUser Long userId,

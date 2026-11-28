@@ -1,6 +1,7 @@
 package com.ontime.meeting.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.ontime.group.domain.ArrivalRule;
 import com.ontime.group.domain.FineRule;
@@ -75,5 +76,12 @@ class MeetingTest {
     assertThat(meeting.getFineRule().getFineType()).isEqualTo(FineType.TEXT);
     assertThat(meeting.getFineRule().getFineAmount()).isZero();
     assertThat(meeting.getFineRule().getPenaltyText()).isEqualTo("커피 사기");
+  }
+
+  @Test
+  @DisplayName("일회성 그룹에는 정기 회차를 만들 수 없다")
+  void recurringOf_oneTimeGroup_rejected() {
+    assertThatThrownBy(() -> Meeting.recurringOf(group(FineRule.money(3000)), MEETING_AT))
+        .isInstanceOf(IllegalStateException.class);
   }
 }

@@ -45,6 +45,21 @@ public class MeetingService {
     attendanceRepository.save(Attendance.ready(meeting, owner));
   }
 
+  /**
+   * 정기 모임의 회차를 기간 안의 고른 요일마다 만들고, 방장을 모든 회차에 READY로 등록한다. 서버 시각과 같거나 앞선 회차는
+   * 만들지 않는다.
+   */
+  @Transactional
+  public void createRecurringMeetings(MeetingGroup group, User owner, Instant now) {
+    List<Meeting> meetings =
+        group.recurringMeetingTimesAfter(now).stream()
+            .map(meetingAt -> Meeting.recurringOf(group, meetingAt))
+            .toList();
+    meetingRepository.saveAll(meetings);
+    attendanceRepository.saveAll(
+        meetings.stream().map(meeting -> Attendance.ready(meeting, owner)).toList());
+  }
+
   /** 새로 참여한 멤버를 그룹의 아직 시작하지 않은 회차에 READY로 등록한다. */
   @Transactional
   public void addToUpcomingMeetings(MeetingGroup group, User user, Instant now) {

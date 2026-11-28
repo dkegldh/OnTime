@@ -5,11 +5,13 @@ import com.ontime.group.domain.GroupMember;
 import com.ontime.group.domain.GroupRole;
 import com.ontime.group.domain.GroupType;
 import com.ontime.group.domain.MeetingGroup;
+import com.ontime.group.domain.Weekday;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.List;
 
-/** 그룹 상세. 생성, 수정 응답도 같은 형식이다. */
+/** 그룹 상세. 생성, 수정 응답도 같은 형식이다. {@code endDate}, {@code daysOfWeek} 는 일회성이면 null이다. */
 public record MeetingGroupResponse(
     Long id,
     String name,
@@ -18,6 +20,8 @@ public record MeetingGroupResponse(
     double latitude,
     double longitude,
     LocalDate startDate,
+    LocalDate endDate,
+    List<Weekday> daysOfWeek,
     LocalTime meetingTime,
     int graceMinutes,
     int absentAfterMinutes,
@@ -38,6 +42,8 @@ public record MeetingGroupResponse(
         group.getPlace().getLatitude(),
         group.getPlace().getLongitude(),
         group.getStartDate(),
+        group.getEndDate(),
+        group.getDaysOfWeek() == null ? null : group.getDaysOfWeek().toList(),
         group.getMeetingTime(),
         group.getArrivalRule().getGraceMinutes(),
         group.getArrivalRule().getAbsentAfterMinutes(),
