@@ -20,6 +20,7 @@ import com.ontime.group.domain.GroupRole;
 import com.ontime.group.domain.GroupType;
 import com.ontime.group.domain.MeetingGroup;
 import com.ontime.group.domain.Place;
+import com.ontime.group.domain.Weekday;
 import com.ontime.group.dto.CreateMeetingGroupRequest;
 import com.ontime.group.dto.MeetingGroupResponse;
 import com.ontime.group.dto.MeetingGroupSummary;
@@ -136,6 +137,54 @@ class MeetingGroupServiceTest {
     ArgumentCaptor<MeetingGroup> groupCaptor = ArgumentCaptor.forClass(MeetingGroup.class);
     verify(meetingService).createOneTimeMeeting(groupCaptor.capture(), eq(requester));
     assertThat(groupCaptor.getValue()).isSameAs(owner.getGroup());
+    // type을 생략하면 일회성이라 정기 모임 회차는 만들지 않는다
+    verify(meetingService, never()).createRecurringMeetings(any(), any(), any());
+  }
+
+  @Test
+  @DisplayName("정기 모임을 만들면 정기 모임 회차 생성을 서버 시각으로 요청하고, 일회성 회차는 만들지 않는다")
+  void create_recurring_createsRecurringMeetingsWithServerTime() {
+    // given
+    User requester = User.create("방장");
+    given(userService.getReference(USER_ID)).willReturn(requester);
+    given(groupMemberRepository.save(any(GroupMember.class))).willAnswer(returnsFirstArg());
+    CreateMeetingGroupRequest request =
+        new CreateMeetingGroupRequest(
+            GroupType.RECURRING, "스터디", "강남역", 37.4979, 127.0276, LocalDate.of(2026, 11, 30),
+            LocalDate.of(2026, 12, 13), List.of(Weekday.WED, Weekday.MON), LocalTime.of(19, 0), 5,
+            60, 200, FineType.MONEY, 3000L, null);
+
+    // when
+    MeetingGroupResponse response = service.create(USER_ID, request);
+
+    // then
+    assertThat(response.type()).isEqualTo(GroupType.RECURRING);
+    assertThat(response.endDate()).isEqualTo(LocalDate.of(2026, 12, 13));
+    assertThat(response.daysOfWeek()).containsExactly(Weekday.MON, Weekday.WED);
+    ArgumentCaptor<MeetingGroup> groupCaptor = ArgumentCaptor.forClass(MeetingGroup.class);
+    verify(meetingService).createRecurringMeetings(groupCaptor.capture(), eq(requester), eq(NOW));
+    assertThat(groupCaptor.getValue().getType()).isEqualTo(GroupType.RECURRING);
+    verify(meetingService, never()).createOneTimeMeeting(any(), any());
+  }
+
+  @Test
+  @DisplayName("정기 모임에 만들 회차가 없으면 NO_MEETING_IN_PERIOD로 거절되고 아무것도 저장하지 않는다")
+  void create_recurringWithoutMeeting_rejectedAndNothingSaved() {
+    // given: 2026-11-30(월) ~ 2026-12-01(화), 금요일만
+    CreateMeetingGroupRequest request =
+        new CreateMeetingGroupRequest(
+            GroupType.RECURRING, "스터디", "강남역", 37.4979, 127.0276, LocalDate.of(2026, 11, 30),
+            LocalDate.of(2026, 12, 1), List.of(Weekday.FRI), LocalTime.of(19, 0), 5, 60, 200,
+            FineType.MONEY, 3000L, null);
+
+    // when & then
+    assertThatThrownBy(() -> service.create(USER_ID, request))
+        .isInstanceOf(BusinessException.class)
+        .extracting("errorCode")
+        .isEqualTo(ErrorCode.NO_MEETING_IN_PERIOD);
+    verify(meetingGroupRepository, never()).save(any());
+    verify(groupMemberRepository, never()).save(any());
+    verify(meetingService, never()).createRecurringMeetings(any(), any(), any());
   }
 
   @Test
