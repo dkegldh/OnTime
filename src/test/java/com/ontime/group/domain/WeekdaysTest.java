@@ -51,6 +51,13 @@ class WeekdaysTest {
     assertThat(weekdays.contains(DayOfWeek.THURSDAY)).isFalse();
   }
 
+  @Test
+  @DisplayName("비트마스크 경계 1은 월요일만, 127은 모든 요일로 읽는다")
+  void fromBits_oneAndAllBits_accepted() {
+    assertThat(Weekdays.fromBits(1).toList()).containsExactly(Weekday.MON);
+    assertThat(Weekdays.fromBits(127).toList()).containsExactly(Weekday.values());
+  }
+
   @ParameterizedTest
   @ValueSource(ints = {0, 128, -1})
   @DisplayName("1~127 밖의 비트마스크는 깨진 데이터로 보고 거절한다")

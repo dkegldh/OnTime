@@ -414,6 +414,47 @@ class RecurringMeetingGroupControllerTest {
     assertThat(row.get("days_of_week")).isNull();
   }
 
+  @Test
+  @DisplayName("시작일과 종료일이 같은 하루짜리 정기 모임은 API에서도 만들어지고 회차가 1개다")
+  void create_singleDayPeriod_createsOneMeeting() throws Exception {
+    // given: 2026-11-30(월) 하루, 월요일
+    Map<String, Object> body =
+        requestWith("endDate", "2026-11-30", "daysOfWeek", List.of("MON"));
+
+    // when
+    createGroup(body);
+
+    // then
+    assertThat(meetingsByTime()).extracting(Meeting::getMeetingAt).containsExactly(FIRST);
+  }
+
+  @Test
+  @DisplayName("type이 ONE_TIME이면 잘못된 종료일(시작일 전)과 빈 요일을 보내도 무시하고 만들어진다")
+  void create_explicitOneTimeWithInvalidPeriodAndDays_ignored() throws Exception {
+    // given
+    Map<String, Object> body =
+        requestWith("type", "ONE_TIME", "endDate", "2026-11-01", "daysOfWeek", List.of());
+
+    // when
+    ResultActions result = create(ownerId, body);
+
+    // then
+    result
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.type").value("ONE_TIME"))
+        .andExpect(jsonPath("$.endDate").value(nullValue()))
+        .andExpect(jsonPath("$.daysOfWeek").value(nullValue()));
+    assertThat(meetingsByTime()).extracting(Meeting::getMeetingAt).containsExactly(FIRST);
+  }
+
+  @Test
+  @DisplayName("type이 ONE_TIME이면 91일 기간을 보내도 무시하고 만들어진다")
+  void create_explicitOneTimeWithTooLongPeriod_ignored() throws Exception {
+    create(ownerId, requestWith("type", "ONE_TIME", "endDate", "2027-02-28"))
+        .andExpect(status().isCreated());
+    assertThat(meetingRepository.count()).isEqualTo(1);
+  }
+
   // ---- 이후 참여/나가기 ----
 
   @Test
@@ -452,60 +493,79 @@ class RecurringMeetingGroupControllerTest {
 
   // ---- DB 제약 ----
 
+  private static final String SCHEDULE_CHECK = "chk_meeting_groups_schedule";
+
+  private void assertViolatesScheduleCheck(String sql, Long groupId) {
+    assertThatThrownBy(() -> jdbcTemplate.update(sql, groupId))
+        .isInstanceOf(DataIntegrityViolationException.class)
+        .hasMessageContaining(SCHEDULE_CHECK);
+  }
+
   @Test
-  @DisplayName("DB CHECK: 정기 모임의 요일 비트마스크가 0이면 저장되지 않는다")
+  @DisplayName("DB CHECK: 정기 모임의 요일 비트마스크가 0이면 거절된다")
   void check_recurringWithZeroDays_rejectedByDb() throws Exception {
+    Long groupId = createGroup(validRequest());
+    assertViolatesScheduleCheck("update meeting_groups set days_of_week = 0 where id = ?", groupId);
+  }
+
+  @Test
+  @DisplayName("DB CHECK: 정기 모임의 요일 비트마스크가 128이면 거절된다")
+  void check_recurringWithDaysOver127_rejectedByDb() throws Exception {
+    Long groupId = createGroup(validRequest());
+    assertViolatesScheduleCheck(
+        "update meeting_groups set days_of_week = 128 where id = ?", groupId);
+  }
+
+  @Test
+  @DisplayName("DB CHECK: 정기 모임의 요일이 null이면 거절된다 (between은 NULL을 통과시키므로 NOT NULL이 따로 필요)")
+  void check_recurringWithNullDays_rejectedByDb() throws Exception {
+    Long groupId = createGroup(validRequest());
+    assertViolatesScheduleCheck(
+        "update meeting_groups set days_of_week = null where id = ?", groupId);
+  }
+
+  @Test
+  @DisplayName("DB CHECK: 정기 모임의 요일 비트마스크 경계 1(월만)과 127(매일)은 저장된다")
+  void check_recurringWithBoundaryDays_saved() throws Exception {
     // given
     Long groupId = createGroup(validRequest());
 
     // when & then
-    assertThatThrownBy(
-            () ->
-                jdbcTemplate.update(
-                    "update meeting_groups set days_of_week = 0 where id = ?", groupId))
-        .isInstanceOf(DataIntegrityViolationException.class);
-    assertThatThrownBy(
-            () ->
-                jdbcTemplate.update(
-                    "update meeting_groups set days_of_week = 128 where id = ?", groupId))
-        .isInstanceOf(DataIntegrityViolationException.class);
+    jdbcTemplate.update("update meeting_groups set days_of_week = 1 where id = ?", groupId);
+    assertThat(meetingGroupRepository.findById(groupId).orElseThrow().getDaysOfWeek().toList())
+        .containsExactly(Weekday.MON);
+    jdbcTemplate.update("update meeting_groups set days_of_week = 127 where id = ?", groupId);
+    assertThat(meetingGroupRepository.findById(groupId).orElseThrow().getDaysOfWeek().toList())
+        .hasSize(7);
   }
 
   @Test
-  @DisplayName("DB CHECK: 정기 모임의 종료일이 시작일보다 앞서거나 없으면 저장되지 않는다")
+  @DisplayName("DB CHECK: 정기 모임의 종료일이 시작일보다 앞서면 거절된다")
   void check_recurringEndBeforeStart_rejectedByDb() throws Exception {
-    // given
     Long groupId = createGroup(validRequest());
-
-    // when & then
-    assertThatThrownBy(
-            () ->
-                jdbcTemplate.update(
-                    "update meeting_groups set end_date = start_date - 1 where id = ?", groupId))
-        .isInstanceOf(DataIntegrityViolationException.class);
-    assertThatThrownBy(
-            () ->
-                jdbcTemplate.update(
-                    "update meeting_groups set end_date = null where id = ?", groupId))
-        .isInstanceOf(DataIntegrityViolationException.class);
+    assertViolatesScheduleCheck(
+        "update meeting_groups set end_date = start_date - 1 where id = ?", groupId);
   }
 
   @Test
-  @DisplayName("DB CHECK: 일회성 그룹에 요일이나 종료일이 있으면 저장되지 않는다")
-  void check_oneTimeWithSchedule_rejectedByDb() throws Exception {
-    // given
-    Long groupId = createGroup(requestWith("type", "ONE_TIME"));
+  @DisplayName("DB CHECK: 정기 모임의 종료일이 null이면 거절된다")
+  void check_recurringWithNullEndDate_rejectedByDb() throws Exception {
+    Long groupId = createGroup(validRequest());
+    assertViolatesScheduleCheck("update meeting_groups set end_date = null where id = ?", groupId);
+  }
 
-    // when & then
-    assertThatThrownBy(
-            () ->
-                jdbcTemplate.update(
-                    "update meeting_groups set days_of_week = 1 where id = ?", groupId))
-        .isInstanceOf(DataIntegrityViolationException.class);
-    assertThatThrownBy(
-            () ->
-                jdbcTemplate.update(
-                    "update meeting_groups set end_date = start_date where id = ?", groupId))
-        .isInstanceOf(DataIntegrityViolationException.class);
+  @Test
+  @DisplayName("DB CHECK: 일회성 그룹에 요일이 있으면 거절된다")
+  void check_oneTimeWithDays_rejectedByDb() throws Exception {
+    Long groupId = createGroup(requestWith("type", "ONE_TIME"));
+    assertViolatesScheduleCheck("update meeting_groups set days_of_week = 1 where id = ?", groupId);
+  }
+
+  @Test
+  @DisplayName("DB CHECK: 일회성 그룹에 종료일이 있으면 거절된다")
+  void check_oneTimeWithEndDate_rejectedByDb() throws Exception {
+    Long groupId = createGroup(requestWith("type", "ONE_TIME"));
+    assertViolatesScheduleCheck(
+        "update meeting_groups set end_date = start_date where id = ?", groupId);
   }
 }

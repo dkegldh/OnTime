@@ -315,4 +315,56 @@ class MeetingGroupRecurringTest {
     assertThat(group.getEndDate()).isNull();
     assertThat(group.getDaysOfWeek()).isNull();
   }
+
+  @Test
+  @DisplayName("종료일이 없으면 VALIDATION_FAILED로 거절된다")
+  void createRecurring_nullEndDate_rejectedWithValidationFailed() {
+    assertRejected(
+        () ->
+            MeetingGroup.createRecurring(
+                "스터디",
+                Place.of("강남역", 37.4979, 127.0276),
+                LocalDate.of(2026, 11, 30),
+                null,
+                Weekdays.of(List.of(Weekday.MON)),
+                SEVEN_PM,
+                ArrivalRule.of(5, 60, 200),
+                FineRule.money(3000),
+                NOW),
+        ErrorCode.VALIDATION_FAILED);
+  }
+
+  @Test
+  @DisplayName("요일이 없으면 VALIDATION_FAILED로 거절된다")
+  void createRecurring_nullDays_rejectedWithValidationFailed() {
+    assertRejected(
+        () ->
+            MeetingGroup.createRecurring(
+                "스터디",
+                Place.of("강남역", 37.4979, 127.0276),
+                LocalDate.of(2026, 11, 30),
+                LocalDate.of(2026, 12, 13),
+                null,
+                SEVEN_PM,
+                ArrivalRule.of(5, 60, 200),
+                FineRule.money(3000),
+                NOW),
+        ErrorCode.VALIDATION_FAILED);
+  }
+
+  @Test
+  @DisplayName("일회성 그룹에서 정기 회차 일시를 구하면 IllegalStateException이다")
+  void recurringMeetingTimesAfter_oneTimeGroup_throwsIllegalState() {
+    MeetingGroup oneTime =
+        MeetingGroup.createOneTime(
+            "약속",
+            Place.of("강남역", 37.4979, 127.0276),
+            LocalDate.of(2026, 12, 4),
+            SEVEN_PM,
+            ArrivalRule.of(5, 60, 200),
+            FineRule.money(3000),
+            NOW);
+    assertThatThrownBy(() -> oneTime.recurringMeetingTimesAfter(NOW))
+        .isInstanceOf(IllegalStateException.class);
+  }
 }
