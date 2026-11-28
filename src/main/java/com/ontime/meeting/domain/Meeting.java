@@ -3,6 +3,7 @@ package com.ontime.meeting.domain;
 import com.ontime.global.common.BaseTimeEntity;
 import com.ontime.group.domain.ArrivalRule;
 import com.ontime.group.domain.FineRule;
+import com.ontime.group.domain.GroupType;
 import com.ontime.group.domain.MeetingGroup;
 import com.ontime.group.domain.Place;
 import jakarta.persistence.Column;
@@ -80,6 +81,9 @@ public class Meeting extends BaseTimeEntity {
 
   /** 정기 모임의 한 회차를 만든다. 약속 일시는 {@link MeetingGroup#recurringMeetingTimesAfter} 의 값이고, 규칙은 그룹에서 복사한다. */
   public static Meeting recurringOf(MeetingGroup group, Instant meetingAt) {
+    if (group.getType() != GroupType.RECURRING) {
+      throw new IllegalStateException("정기 모임이 아닌 그룹에 정기 회차를 만들 수 없습니다: " + group.getType());
+    }
     return new Meeting(group, meetingAt);
   }
 

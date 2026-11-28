@@ -217,7 +217,7 @@ erDiagram
 
 `fineType` 이 `TEXT` 면 `fineAmount` 는 무시합니다(0이나 null을 보내도 됨). `MONEY` 면 `penaltyText` 를 무시합니다(길이도 검사하지 않음).
 
-`type` 을 생략하면 `ONE_TIME` 입니다. 일회성은 `startDate` 가 약속 날짜이고, `endDate`, `daysOfWeek` 를 보내도 무시합니다.
+`type` 을 생략하면 `ONE_TIME` 입니다. 일회성은 `startDate` 가 약속 날짜이고, `endDate`, `daysOfWeek` 를 보내도 무시합니다. (값의 형식은 해석되므로, 없는 요일 이름처럼 형식이 틀린 값은 `400 VALIDATION_FAILED` 입니다)
 
 정기 모임은 `type: "RECURRING"` 과 `endDate`, `daysOfWeek` 가 필요합니다. 요일은 `MON`, `TUE`, `WED`, `THU`, `FRI`, `SAT`, `SUN` 이고, 중복은 하나로 합칩니다.
 

@@ -56,7 +56,7 @@ public record CreateMeetingGroupRequest(
   }
 
   @Schema(hidden = true)
-  @AssertTrue(message = "종료일은 시작일부터 90일 안으로 정해 주세요.")
+  @AssertTrue(message = "종료일은 시작일부터 90일 안의 날짜로 정해 주세요.")
   public boolean isRecurringPeriodValid() {
     if (groupType() != GroupType.RECURRING || startDate == null) {
       return true;
