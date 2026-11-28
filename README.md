@@ -48,11 +48,13 @@ erDiagram
     meeting_groups {
         BIGINT id PK
         VARCHAR name "최대 30자"
-        VARCHAR type "ONE_TIME"
+        VARCHAR type "ONE_TIME | RECURRING"
         VARCHAR place_name "최대 50자"
         DOUBLE latitude
         DOUBLE longitude
-        DATE start_date "일회성: 약속 날짜 (KST)"
+        DATE start_date "일회성: 약속 날짜, 정기: 기간 시작일 (KST)"
+        DATE end_date "정기: 기간 종료일 (KST, 포함), 일회성 null"
+        INT days_of_week "정기: 요일 비트마스크 1~127, 일회성 null"
         TIME meeting_time "만나는 시각 (KST)"
         INT grace_minutes "유예시간"
         INT absent_after_minutes "결석 판정"
@@ -116,8 +118,11 @@ erDiagram
 
 | 컬럼 | 규칙 |
 | --- | --- |
-| `type` | 지금은 `ONE_TIME` 만 생성합니다. 정기 모임(`RECURRING`, 기간과 요일)은 Phase 3에서 추가합니다. |
-| `start_date` + `meeting_time` | KST 기준 약속 일시. 생성할 때 서버 시각보다 뒤여야 합니다. |
+| `type` | `ONE_TIME`(일회성 약속, 회차 1개) 또는 `RECURRING`(정기 모임, 기간 안의 고른 요일마다 회차). |
+| `start_date` + `meeting_time` | 일회성: KST 기준 약속 일시. 생성할 때 서버 시각보다 뒤여야 합니다. 정기: 기간 시작일과 매 회차의 만나는 시각. 시작일은 오늘(KST) 이후여야 합니다(오늘 포함). |
+| `end_date` | 정기 모임 기간 종료일(KST, 포함). 시작일 이후이고, 기간은 시작일·종료일 포함 최대 90일입니다. 일회성은 null. |
+| `days_of_week` | 정기 모임 요일. 비트마스크로 저장합니다: 월=1, 화=2, 수=4, 목=8, 금=16, 토=32, 일=64 (예: 월·수 = 5). 1~127. 일회성은 null. |
+| CHECK `chk_meeting_groups_schedule` | 일회성은 `end_date`, `days_of_week` 가 모두 null, 정기는 모두 있고 `end_date >= start_date`, `days_of_week` 1~127. |
 | `grace_minutes` | 0~60분 |
 | `absent_after_minutes` | 1~180분, `grace_minutes` 보다 커야 합니다. |
 | `arrival_radius_m` | 50~1000m |
@@ -145,8 +150,10 @@ erDiagram
 
 ### meetings
 
-- 약속 한 번(회차)입니다. 일회성 그룹은 생성할 때 같은 트랜잭션에서 회차 1개를 만듭니다. 정기 모임의 회차 일괄 생성은 Phase 3에서 추가합니다.
-- `meeting_at`: 그룹의 `start_date` + `meeting_time` (KST)을 UTC 시각으로 바꾼 값입니다. 지각 판정의 기준입니다.
+- 약속 한 번(회차)입니다. 그룹을 생성할 때 같은 트랜잭션에서 회차를 만들고, 방장을 모든 회차에 `READY` 로 등록합니다.
+  - 일회성: 회차 1개. `meeting_at` 은 그룹의 `start_date` + `meeting_time` (KST)을 UTC 시각으로 바꾼 값입니다.
+  - 정기: `start_date` ~ `end_date` 안에서 요일이 `days_of_week` 에 든 날짜마다 `날짜 + meeting_time` (KST) 회차 1개. 요일은 KST 날짜로 판단합니다. 서버 시각과 같거나 앞선 회차(오늘이 고른 요일인데 시각이 이미 지남)는 만들지 않고, 만들 회차가 하나도 없으면 `NO_MEETING_IN_PERIOD` 로 거절합니다. 최대 90회차입니다.
+- `meeting_at` 은 지각 판정의 기준입니다.
 - 장소, 유예/결석/반경, 벌금 규칙은 그룹 값을 **복사**해 둡니다(스냅샷). 그룹 규칙 수정(Phase 5)은 SCHEDULED 회차에만 반영합니다.
 - `status`: 지금은 `SCHEDULED` 만 만듭니다. `ONGOING`, `CLOSED` 전이는 Phase 3 스케줄러에서 다룹니다.
 - **시작 전 회차**: `status = SCHEDULED` 이고 `meeting_at` 이 서버 시각보다 뒤인 회차. 약속 시각 정각부터는 시작한 회차입니다.
@@ -183,7 +190,7 @@ erDiagram
 
 | 메서드 | 경로 | 설명 | 성공 |
 | --- | --- | --- | --- |
-| `POST` | `/api/v1/meeting-groups` | 일회성 약속 그룹 생성, 요청자를 방장으로 등록 | `201` + `Location` |
+| `POST` | `/api/v1/meeting-groups` | 그룹 생성(일회성/정기), 요청자를 방장으로 등록 | `201` + `Location` |
 | `GET` | `/api/v1/meeting-groups?cursor=&size=` | 내가 속한 그룹 목록 (id 내림차순) | `200` |
 | `GET` | `/api/v1/meeting-groups/{groupId}` | 그룹 상세 | `200` |
 | `PATCH` | `/api/v1/meeting-groups/{groupId}` | 그룹 이름 수정 (방장만) | `200` |
@@ -210,7 +217,35 @@ erDiagram
 
 `fineType` 이 `TEXT` 면 `fineAmount` 는 무시합니다(0이나 null을 보내도 됨). `MONEY` 면 `penaltyText` 를 무시합니다(길이도 검사하지 않음).
 
+`type` 을 생략하면 `ONE_TIME` 입니다. 일회성은 `startDate` 가 약속 날짜이고, `endDate`, `daysOfWeek` 를 보내도 무시합니다.
+
+정기 모임은 `type: "RECURRING"` 과 `endDate`, `daysOfWeek` 가 필요합니다. 요일은 `MON`, `TUE`, `WED`, `THU`, `FRI`, `SAT`, `SUN` 이고, 중복은 하나로 합칩니다.
+
+```json
+{
+  "type": "RECURRING",
+  "name": "월수 스터디",
+  "placeName": "강남역 11번 출구",
+  "latitude": 37.4979,
+  "longitude": 127.0276,
+  "startDate": "2026-11-30",
+  "endDate": "2026-12-13",
+  "daysOfWeek": ["MON", "WED"],
+  "meetingTime": "19:00",
+  "graceMinutes": 5,
+  "absentAfterMinutes": 60,
+  "arrivalRadiusM": 200,
+  "fineType": "MONEY",
+  "fineAmount": 3000,
+  "penaltyText": null
+}
+```
+
+위 요청은 2026-11-30, 12-02, 12-07, 12-09 19:00 KST 회차 4개를 만듭니다.
+
 #### 상세 응답 (생성, 수정 응답도 같음)
+
+`endDate`, `daysOfWeek` 는 일회성이면 `null` 입니다. 정기 모임의 `daysOfWeek` 는 월요일부터 순서대로입니다(예: `["MON", "WED"]`).
 
 ```json
 {
@@ -221,6 +256,8 @@ erDiagram
   "latitude": 37.4979,
   "longitude": 127.0276,
   "startDate": "2026-12-04",
+  "endDate": null,
+  "daysOfWeek": null,
   "meetingTime": "19:00:00",
   "graceMinutes": 5,
   "absentAfterMinutes": 60,
@@ -267,7 +304,9 @@ erDiagram
 
 | 코드 | 상태 | 언제 |
 | --- | --- | --- |
-| `MEETING_TIME_IN_PAST` | 400 | 생성: 약속 일시가 서버 시각 이전(같은 시각 포함) |
+| `MEETING_TIME_IN_PAST` | 400 | 생성: 일회성은 약속 일시가 서버 시각 이전(같은 시각 포함), 정기는 시작일이 오늘(KST)보다 앞섬 |
+| `NO_MEETING_IN_PERIOD` | 400 | 생성(정기): 기간 안에 서버 시각 뒤에 열리는 고른 요일의 회차가 없음 |
+| `VALIDATION_FAILED` | 400 | 생성(정기): `endDate` 없음, 시작일보다 앞섬, 기간 90일 초과(`recurringPeriodValid`). `daysOfWeek` 없음, 빈 배열, null 포함(`recurringDaysPresent`) |
 | `GROUP_NOT_FOUND` | 404 | 상세/수정/삭제: 없거나 삭제된 그룹 |
 | `NOT_GROUP_MEMBER` | 403 | 상세/수정/삭제: 그룹 멤버가 아님 |
 | `OWNER_ONLY` | 403 | 수정/삭제: 방장이 아닌 일반 멤버 |
