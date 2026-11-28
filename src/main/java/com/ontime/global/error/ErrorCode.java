@@ -20,6 +20,7 @@ public enum ErrorCode {
   GROUP_NOT_FOUND(HttpStatus.NOT_FOUND, "그룹을 찾을 수 없어요."),
   MEETING_NOT_FOUND(HttpStatus.NOT_FOUND, "약속을 찾을 수 없어요."),
   MEETING_TIME_IN_PAST(HttpStatus.BAD_REQUEST, "약속 시간은 지금 이후로 정해 주세요."),
+  NO_MEETING_IN_PERIOD(HttpStatus.BAD_REQUEST, "기간 안에 고른 요일의 약속이 없어요. 기간이나 요일을 바꿔 주세요."),
   CONCURRENT_UPDATE(HttpStatus.CONFLICT, "다른 요청과 동시에 바뀌었어요. 다시 시도해 주세요."),
   INVITE_CODE_EXPIRED(HttpStatus.BAD_REQUEST, "만료된 초대 코드예요. 새 코드를 받아 주세요."),
   OWNER_CANNOT_LEAVE(HttpStatus.CONFLICT, "방장은 그룹을 나갈 수 없어요. 그룹을 삭제해 주세요.");

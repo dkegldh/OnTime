@@ -74,8 +74,8 @@ class MeetingGroupServiceTest {
 
   private static CreateMeetingGroupRequest request(LocalDate date, LocalTime time) {
     return new CreateMeetingGroupRequest(
-        "금요일 모임", "강남역", 37.4979, 127.0276, date, time, 5, 60, 200, FineType.MONEY, 3000L,
-        "무시되는 문구");
+        null, "금요일 모임", "강남역", 37.4979, 127.0276, date, null, null, time, 5, 60, 200,
+        FineType.MONEY, 3000L, "무시되는 문구");
   }
 
   private static MeetingGroup group() {

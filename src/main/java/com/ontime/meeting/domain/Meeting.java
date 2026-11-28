@@ -78,6 +78,11 @@ public class Meeting extends BaseTimeEntity {
     return new Meeting(group, group.oneTimeMeetingAt());
   }
 
+  /** 정기 모임의 한 회차를 만든다. 약속 일시는 {@link MeetingGroup#recurringMeetingTimesAfter} 의 값이고, 규칙은 그룹에서 복사한다. */
+  public static Meeting recurringOf(MeetingGroup group, Instant meetingAt) {
+    return new Meeting(group, meetingAt);
+  }
+
   /** 출발/도착 버튼을 누를 수 있는 시각인지. 약속 3시간 전 정각부터 열린다. */
   public boolean isButtonOpenAt(Instant now) {
     return !now.isBefore(meetingAt.minus(BUTTON_OPEN_BEFORE));
